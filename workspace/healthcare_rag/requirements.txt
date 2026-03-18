@@ -1,5 +1,18 @@
+# Kjerneavhengigheter
 sentence-transformers>=2.6
 faiss-cpu>=1.7
 numpy>=1.24
-# For LLM-fallback (valgfritt):
-# openai>=1.0
+
+# LLM-fallback (minst én av disse kreves for LLM-strategi)
+openai>=1.0
+anthropic>=0.39
+
+# NLI cross-encoder (brukes av sentence-transformers CrossEncoder)
+# Ingen ekstra pakke nødvendig — CrossEncoder er del av sentence-transformers
+
+# Server-tilkobling
+websockets>=12.0
+requests>=2.31
+
+# JWT-autentisering (dekkes av PyJWT hvis du trenger å dekode tokens lokalt)
+# PyJWT>=2.8

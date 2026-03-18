@@ -4,6 +4,9 @@ bot.py — Hoved-bot med WebSocket-tilkobling for NM i AI 2026 — Grocery Bot
 Tilkobling: wss://game.ainm.no/ws?token=<jwt_token>
 Server sender game_state JSON → bot svarer med aksjonsliste innen 2 sekunder.
 
+Støtter multi-bot: Hvis serveren sender game_state med "bots" (liste),
+returneres aksjoner per bot.
+
 Kjør:
     python bot.py
 
@@ -44,10 +47,63 @@ MAKS_RESPONSTID: float = 1.8
 MAKS_RECONNECTS: int = 10
 
 
-def behandle_game_state(melding: dict) -> Optional[list[dict]]:
+def _formater_svar(resultat: dict[str, list[dict]] | list[dict]) -> dict:
     """
-    Tar imot en game_state-melding og returnerer aksjonsliste.
+    Formater strategiresultatet til et svar serveren aksepterer.
+
+    Enkelt-bot (list[dict]):
+        {"type": "actions", "actions": [...]}
+
+    Multi-bot (dict[str, list[dict]]):
+        {"type": "actions", "actions": {"bot_0": [...], "bot_1": [...]}}
+
+    Fallback: Hvis serveren forventer en flat liste med bot_id per aksjon,
+    konverterer vi dict til: [{"bot_id": "bot_0", "action": "move_right"}, ...]
+    """
+    if isinstance(resultat, list):
+        # Enkelt-bot-format — bakoverkompatibelt
+        return {
+            "type": "actions",
+            "actions": resultat,
+        }
+
+    # Multi-bot: returner dict-format som primært format
+    return {
+        "type": "actions",
+        "actions": resultat,
+    }
+
+
+def _formater_svar_flat(resultat: dict[str, list[dict]]) -> dict:
+    """
+    Alternativt format: flat liste med bot_id per aksjon.
+    Bruk dette hvis serveren ikke støtter dict-format for aksjoner.
+
+    Returnerer: {"type": "actions", "actions": [
+        {"bot_id": "bot_0", "action": "move_right"},
+        {"bot_id": "bot_1", "action": "wait"},
+        ...
+    ]}
+    """
+    flat_aksjoner = []
+    for bot_id, aksjoner in resultat.items():
+        for aksjon in aksjoner:
+            flat_aksjon = dict(aksjon)
+            flat_aksjon["bot_id"] = bot_id
+            flat_aksjoner.append(flat_aksjon)
+
+    return {
+        "type": "actions",
+        "actions": flat_aksjoner,
+    }
+
+
+def behandle_game_state(melding: dict) -> Optional[dict]:
+    """
+    Tar imot en game_state-melding og returnerer ferdig formatert svar.
     Returnerer None hvis meldingen ikke er en game_state.
+
+    Håndterer både enkelt-bot og multi-bot game_state.
     """
     if melding.get("type") != "game_state":
         logger.debug(f"Ignorerer meldingstype: {melding.get('type')}")
@@ -61,14 +117,23 @@ def behandle_game_state(melding: dict) -> Optional[list[dict]]:
         GRID_HØYDE = melding["grid_height"]
 
     start = time.monotonic()
-    aksjoner = planlegg_aksjoner(melding, GRID_BREDDE, GRID_HØYDE)
+    resultat = planlegg_aksjoner(melding, GRID_BREDDE, GRID_HØYDE)
     elapsed = time.monotonic() - start
 
-    logger.info(f"Planla {len(aksjoner)} aksjoner på {elapsed:.3f}s")
+    # Logg antall aksjoner
+    if isinstance(resultat, dict):
+        totalt = sum(len(a) for a in resultat.values())
+        logger.info(
+            f"Planla aksjoner for {len(resultat)} bots "
+            f"({totalt} aksjoner totalt) på {elapsed:.3f}s"
+        )
+    else:
+        logger.info(f"Planla {len(resultat)} aksjoner på {elapsed:.3f}s")
+
     if elapsed > MAKS_RESPONSTID:
         logger.warning(f"ADVARSEL: Planlegging tok {elapsed:.2f}s — over grensen!")
 
-    return aksjoner
+    return _formater_svar(resultat)
 
 
 async def kjør_bot():
@@ -105,14 +170,11 @@ async def kjør_bot():
                         logger.error(f"Serverfeil: {melding.get('message')}")
                         continue
 
-                    aksjoner = behandle_game_state(melding)
-                    if aksjoner is None:
+                    svar_dict = behandle_game_state(melding)
+                    if svar_dict is None:
                         continue
 
-                    svar = json.dumps({
-                        "type": "actions",
-                        "actions": aksjoner,
-                    })
+                    svar = json.dumps(svar_dict)
                     await ws.send(svar)
                     logger.debug(f"Sendte: {svar[:200]}")
 
