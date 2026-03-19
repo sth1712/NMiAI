@@ -23,7 +23,16 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-client = genai.Client(api_key=GEMINI_API_KEY)
+client = None
+
+@app.on_event("startup")
+def startup():
+    global client
+    if GEMINI_API_KEY:
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        logger.info(f"Gemini client initialized (key: {GEMINI_API_KEY[:8]}...)")
+    else:
+        logger.warning("GEMINI_API_KEY not set — agent will return completed without action")
 
 
 SYSTEM_PROMPT = """You are an AI accounting agent for Tripletex (Norwegian accounting software).
@@ -351,6 +360,10 @@ async def solve(request: Request):
         user_prompt += f"\n\nAttached files:\n{extract_file_content(files)}"
 
     # Ask Gemini to plan API calls
+    if not client:
+        logger.error("No Gemini client — GEMINI_API_KEY not set")
+        return JSONResponse({"status": "completed"})
+
     try:
         response = client.models.generate_content(
             model=MODEL_NAME,
@@ -387,4 +400,5 @@ async def solve(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run(app, host="0.0.0.0", port=port)
