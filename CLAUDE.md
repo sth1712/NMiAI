@@ -1,94 +1,73 @@
 # CLAUDE.md — NM i AI 2026
 
 ## Hvem er Sander
-- Bachelorstudent ved HiØ, bygger KI-konsulenthuset **Digliate** (ansvarlig KI-implementering for norske SMBer)
-- Deltaker i **NM i AI 2026** (Norges mesterskap i kunstig intelligens), 19–22. mars 2026
-- Premiepott: 1 MNOK. Konkurransen består av 4 oppgaver (se under).
-- Sander har et 7-agentsystem for bachelorprosjektet, men det er IKKE relevant for dette repoet — her handler det kun om NM i AI.
+- Bachelorstudent ved HiØ, bygger KI-konsulenthuset **Digliate**
+- Deltaker i **NM i AI 2026**, 19–22. mars 2026 (69 timer)
+- Premiepott: 1 MNOK. Totalpoeng = gjennomsnitt av normalisert score på alle 3 oppgaver (33% hver).
 
 ## Språk
-- Skriv på **norsk bokmål** i kommunikasjon med Sander. Bruk æ, ø, å.
-- Kode og kommentarer i kode kan være på engelsk.
+- **Norsk bokmål** i kommunikasjon. Bruk æ, ø, å.
+- Kode og kommentarer kan være på engelsk.
 
-## Repostruktur
-
+## MCP Docs Server
+```bash
+claude mcp add --transport http nmiai https://mcp-docs.ainm.no/mcp
 ```
-NMiAI/
-├── CLAUDE.md              ← Denne filen (les FØRST)
-├── MOBIL_INBOX.md         ← Sander skriver instrukser/info fra telefonen her
-├── KLAR_TIL_START.md      ← Status per oppgave, sjekklister, prioritering
-└── workspace/
-    ├── README.md          ← Teknisk oversikt over alle oppgaver
-    ├── cheatsheet/        ← To tekniske cheat sheets med strategier og kode
-    ├── grocery_bot/       ← Oppgave 1: WebSocket matbutikk-bot
-    ├── race_car/          ← Oppgave 2: Regelbasert kjøreagent
-    ├── healthcare_rag/    ← Oppgave 3: Medisinsk NLI/RAG-system
-    └── tumor_segmentation/← Oppgave 4: U-Net tumorsegmentering
-```
+Bruk denne for å slå opp detaljer i offisiell dokumentasjon.
 
-## Viktige filer å lese
+## De 3 oppgavene
 
-1. **`MOBIL_INBOX.md`** — Sjekk denne FØRST. Sander legger inn instrukser, server-URLer, tokens og info fra kickoff her.
-2. **`KLAR_TIL_START.md`** — Komplett statusoversikt per oppgave med sjekklister og prioritering.
-3. **`workspace/README.md`** — Teknisk dokumentasjon og kjørekommandoer for alle 4 oppgaver.
-4. **`workspace/cheatsheet/`** — To detaljerte cheat sheets med strategier, kodeeksempler og optimalisering.
+### 1. NorgesGruppen Data: Object Detection
+- **Hva:** Detekter og klassifiser dagligvareprodukter på butikkhyller
+- **Type:** Kode-opplasting (.zip med run.py + modellvekter)
+- **Metrikk:** mAP@0.5 — 70% deteksjon + 30% klassifikasjon
+- **Sandbox:** NVIDIA L4 GPU (24GB VRAM), Python 3.11, PyTorch 2.6, ultralytics 8.1.0, INGEN nettverkstilgang
+- **Treningsdata:** 248 bilder, ~22.700 bboxer, 356 produktkategorier (COCO-format). Også produktbilder (327 produkter, multi-vinkel).
+- **Tidsfrist per submission:** 300 sekunder
+- **Daglig kvote:** 3 submissions/dag, maks 2 in-flight
+- **Nøkkelinnsikt:** Detection-only (category_id: 0 for alt) gir opptil 70%. Fine-tuning YOLOv8 på treningsdataene gir resten.
+- **Quick win:** Last ned data, fine-tune YOLOv8n/s/m på datasettet, eksporter, submit.
 
-## De 4 oppgavene
+### 2. Tripletex: AI Accounting Agent
+- **Hva:** Bygg en AI-agent som utfører regnskapsoppgaver via Tripletex API
+- **Type:** Host et HTTPS /solve-endepunkt. De sender oppgaver, du utfører API-kall.
+- **Metrikk:** Felt-for-felt verifisering × tier-multiplikator + effektivitetsbonus
+- **30 oppgaver**, 56 varianter per oppgave (7 språk × 8 datasett)
+- **Tier 1** (×1): Enkle oppgaver (opprett ansatt, kunde). Tilgjengelig fra start.
+- **Tier 2** (×2): Multi-steg (faktura med betaling). Åpner fredag tidlig.
+- **Tier 3** (×3): Komplekse scenarioer. Åpner lørdag tidlig.
+- **Timeout:** 5 minutter per oppgave
+- **Nøkkelinnsikt:** LLM-agent som tolker norsk prompt → mapper til API-kall. Effektivitet belønnes (færre kall, null feil).
+- **Quick win:** FastAPI + LLM (Claude/Gemini) som tolker prompts og kaller Tripletex API.
 
-### 1. Grocery Bot (`workspace/grocery_bot/`)
-- **Hva:** WebSocket-bot som handler i en virtuell matbutikk. Navigerer et grid, plukker varer, leverer ordrer.
-- **Teknologi:** A* pathfinding, multi-bot koordinering, kollisjonsunngåelse
-- **Status:** Fungerende kode, MEN ikke testet mot live server. A*-implementasjonen har en ytelsessvakhet (kopierer hele stien per node — bør bruke came_from-dict).
-- **Pre-game:** Denne oppgaven er LIVE — gir poeng allerede nå.
-- **Filer:** `bot.py` (WebSocket + hovedloop), `pathfinding.py` (A*), `strategy.py` (ordretildeling)
-- **Kjør:** `JWT_TOKEN="..." python3 bot.py`
+### 3. Astar Island: Norse World Prediction
+- **Hva:** Observer en norrøn sivilisasjonssimulator gjennom begrenset viewport, prediker sluttilstanden
+- **Type:** REST API — query simulator, submit sannsynlighetsfordelinger
+- **Metrikk:** KL-divergens (entropivektet), 0-100 skala
+- **40×40 kart, 5 seeds, 50 queries per runde** (delt på alle seeds)
+- **Viewport:** Maks 15×15 per query
+- **Prediksjonsformat:** H×W×6 tensor med sannsynligheter for 6 terrengklasser
+- **6 klasser:** Empty (0), Settlement (1), Port (2), Ruin (3), Forest (4), Mountain (5)
+- **VIKTIG:** Aldri sett sannsynlighet til 0.0 — bruk minimum 0.01 og renormaliser
+- **Nøkkelinnsikt:** Statiske celler (hav, fjell, skog) kan utledes fra initial_states. Dynamiske celler (settlements, ports, ruins) er det som scorer.
+- **Quick win:** Hent initial_states, sett kjente celler til ~1.0, ellers uniform. Submit for alle 5 seeds.
 
-### 2. Race Car (`workspace/race_car/`)
-- **Hva:** KI-agent med 16 sensorer som skal kjøre lengst mulig på 1 minutt.
-- **Teknologi:** Regelbasert sensorlogikk med sektorer og EMA-glatting. Cheat sheet har FSM og PID-varianter.
-- **Status:** Baseline fungerer, men mangler hastighetssensitiv styring.
-- **Filer:** `bot.py` (tilkobling), `agent.py` (kjørelogikk)
-- **Kjør:** `JWT_TOKEN="..." python3 bot.py`
+## Prioritering
 
-### 3. Emergency Healthcare RAG (`workspace/healthcare_rag/`)
-- **Hva:** Klassifiserer medisinske påstander som sant/usant + tildeler ett av 115 temaer.
-- **Teknologi:** NLI (DeBERTa) → LLM-fallback → regelbasert kaskade. FAISS for retrieval.
-- **Status:** Arkitektur klar, MEN kunnskapsbasen har kun 3 eksempeldokumenter. Trenger riktig medisinsk data for å fungere.
-- **Filer:** `rag_pipeline.py` (FAISS-indeks), `classifier.py` (NLI/LLM kaskade + server)
-- **Kjør:** `OPENAI_API_KEY="..." python3 classifier.py --server`
-- **ML-modeller:** `cross-encoder/nli-deberta-v3-base` og `paraphrase-multilingual-MiniLM-L12-v2` er allerede lastet ned til lokal cache.
-
-### 4. Tumor Segmentation (`workspace/tumor_segmentation/`)
-- **Hva:** Segmentere svulster i MIP-PET-bilder. Maks 10 sek/bilde.
-- **Teknologi:** MONAI U-Net med pretrained fallback-hierarki.
-- **Status:** Minimal — trenger pretrained vekter for å gi verdi. LAVEST prioritet.
-- **Filer:** `bot.py` (server), `model.py` (U-Net), `inference.py` (TTA + postprocessing)
-- **Kjør:** `JWT_TOKEN="..." python3 bot.py`
-
-## Prioriteringsrekkefølge under konkurransen
-
-1. **Grocery Bot** — allerede live, gir poeng NÅ. Høyest ROI.
-2. **Healthcare RAG** — høy ROI hvis kunnskapsbase bygges. NLI-tilnærmingen er teknisk riktig.
-3. **Race Car** — finjuster regelbasert agent. PID-kontroller og fartsjustering kan gi mye.
-4. **Tumor Segmentation** — maks 30 min. Kun verdt det med pretrained modell.
+1. **Tripletex** — Raskest å score. LLM-agent + API. Kan starte scoring på Tier 1 umiddelbart.
+2. **NorgesGruppen** — Trenger GPU-trening. YOLOv8 fine-tuning. Detection-only gir 70%.
+3. **Astar Island** — Submit uniform baseline ASAP (scores 1-5, men bedre enn 0). Forbedre gradvis.
 
 ## Teknisk miljø
-- **OS:** macOS (Darwin)
-- **Python:** 3.13
-- **Alle pip-avhengigheter:** Installert for alle 4 oppgaver.
-- **ML-modeller cached:** DeBERTa NLI + multilingual MiniLM embedding.
-- **API-nøkler trengs:** `JWT_TOKEN` (fra app.ainm.no), `OPENAI_API_KEY` eller `ANTHROPIC_API_KEY`
+- **OS:** macOS (Darwin), Python 3.13
+- **Google Cloud:** Søkt om konto (Compute Engine, Vertex AI, Gemini API, Cloud Run, Cloud Shell)
+- **API-nøkler trengs:** JWT fra app.ainm.no, ANTHROPIC_API_KEY, evt. OPENAI_API_KEY, Gemini API
 
 ## Arbeidsflyt
-
-1. Les `MOBIL_INBOX.md` for nye instrukser fra Sander
+1. Les `MOBIL_INBOX.md` for instrukser fra Sander
 2. Les `KLAR_TIL_START.md` for status og sjekklister
-3. Gjør det Sander ber om — kodeendringer, forberedelser, testing
-4. Commit og push endringer til GitHub slik at alt er synkronisert
+3. Gjør det Sander ber om
+4. Commit og push endringer
 
-## Vanlige oppgaver Sander kan be om
-- Fiks/forbedre kode i en spesifikk oppgave
-- Bygg kunnskapsbase for Healthcare RAG
-- Test en bot mot serveren
-- Oppdater strategi basert på ny info fra konkurransen
-- Legg inn server-URLer, tokens eller nye regler
+## VIKTIG: Gammel kode er IRRELEVANT
+Mappene `workspace/grocery_bot/`, `workspace/race_car/`, `workspace/healthcare_rag/`, `workspace/tumor_segmentation/` var basert på EKSEMPELOPPGAVER som ikke ble brukt. De faktiske oppgavene er helt andre. Ignorer gammel kode.
