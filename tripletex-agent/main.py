@@ -15,16 +15,15 @@ from fastapi.responses import JSONResponse
 from google import genai
 
 # --- Config ---
-PROJECT_ID = os.environ.get("GCP_PROJECT", "ainm26osl-705")
-REGION = os.environ.get("GCP_REGION", "us-central1")
-MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyDvf-siwFj1xPxzF6W8kJW51FLTrD77SoQ")
+MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
 # --- Init ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-client = genai.Client(vertexai=True, project=PROJECT_ID, location=REGION)
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 SYSTEM_PROMPT = """You are an AI accounting agent for Tripletex (Norwegian accounting software).
