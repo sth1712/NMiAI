@@ -58,10 +58,25 @@ Bruk denne for å slå opp detaljer i offisiell dokumentasjon.
 2. **NorgesGruppen** — Trenger GPU-trening. YOLOv8 fine-tuning. Detection-only gir 70%.
 3. **Astar Island** — Submit uniform baseline ASAP (scores 1-5, men bedre enn 0). Forbedre gradvis.
 
+## Google Cloud Platform (GRATIS — ingen kredittkort, ingen grenser)
+Sander har fått en dedikert GCP-konto (@gcplab.me) via NM-partnerskap med Google. Ingen kreditgrenser.
+
+**Tilgjengelige tjenester:**
+- **Cloud Run** — Deploy Tripletex-agenten som HTTPS-endepunkt (perfekt for /solve)
+- **Compute Engine** — GPU VMs for NorgesGruppen-trening (YOLOv8 fine-tuning)
+- **Vertex AI / Model Garden** — Pretrained modeller
+- **Gemini models & AI Studio** — Gratis Gemini API (bruk som LLM i Tripletex-agent!)
+- **Cloud Shell & VS Code IDE** — Kan utvikle direkte i nettleseren
+
+**Strategisk bruk:**
+- **Tripletex-agent → Cloud Run** (deploy FastAPI som HTTPS-endepunkt, null config)
+- **NorgesGruppen-trening → Compute Engine med GPU** (YOLOv8 fine-tuning)
+- **LLM-backbone → Gemini API** (gratis, erstatter betalt Claude/OpenAI-avhengighet)
+
 ## Teknisk miljø
 - **OS:** macOS (Darwin), Python 3.13
-- **Google Cloud:** Søkt om konto (Compute Engine, Vertex AI, Gemini API, Cloud Run, Cloud Shell)
-- **API-nøkler trengs:** JWT fra app.ainm.no, ANTHROPIC_API_KEY, evt. OPENAI_API_KEY, Gemini API
+- **GCP:** Dedikert prosjekt med @gcplab.me-konto. Cloud Run, Compute Engine, Vertex AI, Gemini, Cloud Shell.
+- **API-nøkler trengs:** JWT fra app.ainm.no, Gemini API-nøkkel (fra AI Studio), evt. ANTHROPIC_API_KEY
 
 ## Arbeidsflyt
 1. Les `MOBIL_INBOX.md` for instrukser fra Sander
