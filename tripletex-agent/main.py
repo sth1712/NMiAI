@@ -8,13 +8,11 @@ import json
 import logging
 import os
 import re
-from pathlib import Path
 
-import requests
-import vertexai
+import requests as http_requests
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from vertexai.generative_models import GenerativeModel
+from google import genai
 
 # --- Config ---
 PROJECT_ID = os.environ.get("GCP_PROJECT", "ainm26osl-705")
@@ -26,8 +24,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-vertexai.init(project=PROJECT_ID, location=REGION)
-model = GenerativeModel(MODEL_NAME)
+client = genai.Client(vertexai=True, project=PROJECT_ID, location=REGION)
 
 
 SYSTEM_PROMPT = """You are an AI accounting agent for Tripletex (Norwegian accounting software).
@@ -51,22 +48,26 @@ IMPORTANT RULES:
 - Analyze the prompt carefully. Extract entity names, values, and relationships.
 - Return a JSON array of API calls to execute IN ORDER.
 - For POST/PUT, include the JSON body.
-- Use ?fields=* on GET requests to see all available fields.
-- When creating invoices, you usually need to create an order first.
-- Some fields are required — check error messages and retry if needed.
+- When creating invoices, you usually need to create an order first, then reference the order in the invoice.
+- Some fields are required — include reasonable defaults if not specified.
 - Keep it minimal — fewer API calls = better efficiency score.
+- For employee creation: use firstName, lastName, email fields.
+- For customer creation: use name, email, isCustomer: true.
+- For dates, use format "YYYY-MM-DD" and default to "2026-03-20" if not specified.
 
-Respond ONLY with a valid JSON array. Each element:
+Respond ONLY with a valid JSON array. No explanation, no markdown, just JSON.
+
+Each element:
 {
   "method": "GET" | "POST" | "PUT" | "DELETE",
   "path": "/endpoint/path",
-  "params": {"key": "value"},  // for GET query params
-  "body": {}  // for POST/PUT
+  "params": {},
+  "body": {}
 }
 
-If you need to reference an ID from a previous call's response, use the placeholder "$PREV_N_ID" where N is the 0-based index of the previous call. For example "$PREV_0_ID" means the id from the first call's response.
+If you need to reference an ID from a previous call's response, use "$PREV_N_ID" where N is the 0-based index. Example: "$PREV_0_ID" = id from first call's response.
 
-Example — "Opprett en ansatt med navn Ola Nordmann, e-post ola@example.org":
+Example — "Opprett en ansatt med navn Ola Nordmann, e-post ola@example.org. Han skal være kontoadministrator.":
 [
   {
     "method": "POST",
@@ -76,25 +77,6 @@ Example — "Opprett en ansatt med navn Ola Nordmann, e-post ola@example.org":
       "lastName": "Nordmann",
       "email": "ola@example.org"
     }
-  }
-]
-
-Example — "Opprett en kunde Test AS og lag en faktura":
-[
-  {
-    "method": "POST",
-    "path": "/customer",
-    "body": {"name": "Test AS", "isCustomer": true}
-  },
-  {
-    "method": "POST",
-    "path": "/order",
-    "body": {"customer": {"id": "$PREV_0_ID"}, "deliveryDate": "2026-03-20", "orderDate": "2026-03-20"}
-  },
-  {
-    "method": "POST",
-    "path": "/invoice",
-    "body": {"invoiceDate": "2026-03-20", "invoiceDueDate": "2026-04-20", "orders": [{"id": "$PREV_1_ID"}]}
   }
 ]
 """
@@ -114,7 +96,6 @@ def resolve_placeholders(value, results):
                 elif "values" in results[idx] and results[idx]["values"]:
                     prev_id = results[idx]["values"][0].get("id")
                 if prev_id is not None:
-                    # If the entire string is just the placeholder, return the int
                     if value == match.group(0):
                         return prev_id
                     return value.replace(match.group(0), str(prev_id))
@@ -137,25 +118,25 @@ def execute_api_calls(calls, base_url, session_token):
         params = call.get("params", {})
         body = call.get("body", {})
 
-        # Resolve placeholders from previous results
         path = resolve_placeholders(path, results)
         params = resolve_placeholders(params, results)
         body = resolve_placeholders(body, results)
 
         url = f"{base_url}{path}"
         logger.info(f"Call {i}: {method} {url}")
+        if body:
+            logger.info(f"  Body: {json.dumps(body)[:300]}")
 
         try:
             if method == "GET":
-                resp = requests.get(url, auth=auth, params=params, timeout=30)
+                resp = http_requests.get(url, auth=auth, params=params, timeout=30)
             elif method == "POST":
-                resp = requests.post(url, auth=auth, json=body, timeout=30)
+                resp = http_requests.post(url, auth=auth, json=body, timeout=30)
             elif method == "PUT":
-                resp = requests.put(url, auth=auth, json=body, timeout=30)
+                resp = http_requests.put(url, auth=auth, json=body, timeout=30)
             elif method == "DELETE":
-                resp = requests.delete(url, auth=auth, timeout=30)
+                resp = http_requests.delete(url, auth=auth, timeout=30)
             else:
-                logger.warning(f"Unknown method: {method}")
                 results.append(None)
                 continue
 
@@ -166,7 +147,7 @@ def execute_api_calls(calls, base_url, session_token):
                 logger.warning(f"  → Error: {error_text}")
                 results.append({"error": resp.status_code, "detail": error_text})
 
-                # If it failed, try to fix with Gemini
+                # Try to fix with Gemini on validation errors
                 if resp.status_code in (400, 422):
                     fix = try_fix_call(call, error_text, base_url, auth, results)
                     if fix:
@@ -191,13 +172,15 @@ def try_fix_call(original_call, error_text, base_url, auth, results):
 
 Error response: {error_text}
 
-Fix the API call and return ONLY a corrected JSON object (single call, not array).
-Keep the same intent but fix the error. If fields are missing, add them with reasonable defaults.
-"""
+Fix the API call. Return ONLY a corrected JSON object (single call, not array). No explanation."""
+
     try:
-        response = model.generate_content(fix_prompt)
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=fix_prompt,
+            config={"temperature": 0.1, "max_output_tokens": 2048},
+        )
         text = response.text.strip()
-        # Extract JSON from response
         if "```" in text:
             text = text.split("```")[1]
             if text.startswith("json"):
@@ -212,42 +195,41 @@ Keep the same intent but fix the error. If fields are missing, add them with rea
 
         logger.info(f"  → Retry: {method} {url}")
         if method == "POST":
-            resp = requests.post(url, auth=auth, json=body, timeout=30)
+            resp = http_requests.post(url, auth=auth, json=body, timeout=30)
         elif method == "PUT":
-            resp = requests.put(url, auth=auth, json=body, timeout=30)
+            resp = http_requests.put(url, auth=auth, json=body, timeout=30)
         else:
             return None
 
-        logger.info(f"  → Retry status: {resp.status_code}")
+        logger.info(f"  → Retry: {resp.status_code}")
         if resp.status_code < 400:
             return resp.json()
     except Exception as e:
         logger.error(f"  → Fix failed: {e}")
-
     return None
 
 
 def extract_file_content(files):
     """Extract text content from attached files."""
-    file_descriptions = []
+    descriptions = []
     for f in files:
         filename = f.get("filename", "unknown")
         mime = f.get("mime_type", "")
         try:
             data = base64.b64decode(f["content_base64"])
             if "pdf" in mime:
-                file_descriptions.append(f"[Attached PDF: {filename}, {len(data)} bytes — extract data from this if needed]")
+                descriptions.append(f"[PDF: {filename}, {len(data)} bytes]")
             elif "image" in mime:
-                file_descriptions.append(f"[Attached image: {filename}, {len(data)} bytes]")
+                descriptions.append(f"[Image: {filename}, {len(data)} bytes]")
             else:
                 try:
                     text = data.decode("utf-8")[:2000]
-                    file_descriptions.append(f"[File: {filename}]\n{text}")
+                    descriptions.append(f"[File: {filename}]\n{text}")
                 except Exception:
-                    file_descriptions.append(f"[Binary file: {filename}, {len(data)} bytes]")
+                    descriptions.append(f"[Binary: {filename}, {len(data)} bytes]")
         except Exception:
-            file_descriptions.append(f"[Could not decode: {filename}]")
-    return "\n".join(file_descriptions)
+            descriptions.append(f"[Could not decode: {filename}]")
+    return "\n".join(descriptions)
 
 
 @app.get("/health")
@@ -264,24 +246,22 @@ async def solve(request: Request):
     base_url = creds["base_url"]
     session_token = creds["session_token"]
 
-    logger.info(f"Received task: {prompt[:200]}...")
+    logger.info(f"Task: {prompt[:200]}...")
 
-    # Build the full prompt for Gemini
+    # Build prompt for Gemini
     user_prompt = f"Task prompt:\n{prompt}"
-
     if files:
-        file_info = extract_file_content(files)
-        user_prompt += f"\n\nAttached files:\n{file_info}"
+        user_prompt += f"\n\nAttached files:\n{extract_file_content(files)}"
 
-    # Ask Gemini to plan the API calls
+    # Ask Gemini to plan API calls
     try:
-        response = model.generate_content(
-            [SYSTEM_PROMPT, user_prompt],
-            generation_config={"temperature": 0.1, "max_output_tokens": 4096},
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=[SYSTEM_PROMPT, user_prompt],
+            config={"temperature": 0.1, "max_output_tokens": 4096},
         )
         text = response.text.strip()
 
-        # Extract JSON from response
         if "```" in text:
             text = text.split("```")[1]
             if text.startswith("json"):
@@ -292,16 +272,16 @@ async def solve(request: Request):
         if not isinstance(calls, list):
             calls = [calls]
 
-        logger.info(f"Gemini planned {len(calls)} API calls")
+        logger.info(f"Planned {len(calls)} API calls")
 
     except Exception as e:
         logger.error(f"Gemini error: {e}")
         return JSONResponse({"status": "completed"})
 
-    # Execute the API calls
+    # Execute
     try:
         results = execute_api_calls(calls, base_url, session_token)
-        logger.info(f"Executed {len(results)} calls")
+        logger.info(f"Done — {len(results)} calls executed")
     except Exception as e:
         logger.error(f"Execution error: {e}")
 
