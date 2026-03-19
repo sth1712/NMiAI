@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from google import genai
 
 # --- Config ---
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyDvf-siwFj1xPxzF6W8kJW51FLTrD77SoQ")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
 # --- Init ---
