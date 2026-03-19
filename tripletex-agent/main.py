@@ -339,10 +339,12 @@ def extract_file_content(files):
 
 
 @app.get("/health")
+@app.get("/")
 async def health():
     return {"status": "ok"}
 
 
+@app.post("/")
 @app.post("/solve")
 async def solve(request: Request):
     body = await request.json()
