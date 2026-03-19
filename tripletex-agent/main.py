@@ -47,10 +47,17 @@ CRITICAL FIELD REQUIREMENTS (learned from testing):
 
 EMPLOYEE (POST /employee):
 - REQUIRED: firstName, lastName, email, userType, department.id
-- userType MUST be "STANDARD" (not ADMINISTRATOR, ACCOUNTANT etc.)
 - department.id: First GET /department to find available departments, use the first one's id
-- If the prompt says "kontoadministrator" or similar admin role, still use userType "STANDARD" — admin roles are set separately via access rights
-- If prompt mentions a specific department, GET /department first to find matching id
+- userType options:
+  - "STANDARD" — regular user (cannot be given admin role)
+  - "EXTENDED" — extended access user (CAN be given admin role)
+  - "NO_ACCESS" — no login access
+- If the prompt says "kontoadministrator", "administrator", "admin" or similar → use userType "EXTENDED"
+- After creating an EXTENDED employee who should be admin, you MUST also call:
+  1. GET /token/session/>whoAmI to get companyId
+  2. POST /employee/entitlement with body: {"employee": {"id": NEW_EMPLOYEE_ID}, "entitlementId": 1, "customer": {"id": COMPANY_ID}}
+  This assigns the ROLE_ADMINISTRATOR entitlement.
+- If NO admin role is mentioned → use userType "STANDARD"
 
 CUSTOMER (POST /customer):
 - REQUIRED: name, isCustomer (set to true)
@@ -122,6 +129,40 @@ Example — "Opprett en ansatt med navn Ola Nordmann, e-post ola@example.org":
   }
 ]
 
+Example — "Opprett en ansatt med navn Kari Nordmann, kari@example.org. Hun skal være kontoadministrator.":
+[
+  {
+    "method": "GET",
+    "path": "/department",
+    "params": {"count": 1}
+  },
+  {
+    "method": "GET",
+    "path": "/token/session/>whoAmI",
+    "params": {}
+  },
+  {
+    "method": "POST",
+    "path": "/employee",
+    "body": {
+      "firstName": "Kari",
+      "lastName": "Nordmann",
+      "email": "kari@example.org",
+      "userType": "EXTENDED",
+      "department": {"id": "$PREV_0_ID"}
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/employee/entitlement",
+    "body": {
+      "employee": {"id": "$PREV_2_ID"},
+      "entitlementId": 1,
+      "customer": {"id": "$PREV_1_ID"}
+    }
+  }
+]
+
 Example — "Opprett en kunde Test AS med e-post test@test.no":
 [
   {
@@ -147,7 +188,8 @@ def resolve_placeholders(value, results):
             if idx < len(results) and results[idx]:
                 prev_id = None
                 if "value" in results[idx]:
-                    prev_id = results[idx]["value"].get("id")
+                    # Try id first, then companyId (for /token/session/>whoAmI)
+                    prev_id = results[idx]["value"].get("id") or results[idx]["value"].get("companyId")
                 elif "values" in results[idx] and results[idx]["values"]:
                     prev_id = results[idx]["values"][0].get("id")
                 if prev_id is not None:
