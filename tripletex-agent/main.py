@@ -94,6 +94,11 @@ TRAVEL EXPENSE (POST /travelExpense):
 PROJECT (POST /project):
 - REQUIRED: name, number, projectManager.id (employee id)
 - Optional: customer.id
+- IMPORTANT: The employee used as projectManager MUST have project manager entitlement first!
+  Before creating a project, give the employee project manager access:
+  1. GET /token/session/>whoAmI to get companyId
+  2. POST /employee/entitlement with body: {"employee": {"id": EMPLOYEE_ID}, "entitlementId": 10, "customer": {"id": COMPANY_ID}}
+  This assigns AUTH_PROJECT_MANAGER. Without this, the project creation will fail with "prosjektleder har ikke fått tilgang".
 
 DEPARTMENT (POST /department):
 - REQUIRED: name
