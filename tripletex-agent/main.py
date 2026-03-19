@@ -16,7 +16,7 @@ from google import genai
 
 # --- Config ---
 PROJECT_ID = os.environ.get("GCP_PROJECT", "ainm26osl-705")
-REGION = os.environ.get("GCP_REGION", "europe-north1")
+REGION = os.environ.get("GCP_REGION", "us-central1")
 MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
 
 # --- Init ---
