@@ -74,7 +74,10 @@ CUSTOMER (POST /customer):
 
 PRODUCT (POST /product):
 - REQUIRED: name
-- Optional: number, priceExcludingVat, priceIncludingVat
+- Optional: number, priceExcludingVatCurrency, priceIncludingVatCurrency, costExcludingVatCurrency
+- NOTE: Field names end with "Currency" — NOT "priceExcludingVat" but "priceExcludingVatCurrency"
+- For VAT/MVA: use vatType with id. Standard 25% MVA = {"vatType": {"id": 3}}
+- vatType IDs: 3 = 25% standard, 5 = 15% food, 31 = 12% transport, 6 = 0% exempt
 
 ORDER (POST /order):
 - REQUIRED: customer.id, deliveryDate, orderDate
