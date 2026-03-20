@@ -136,8 +136,11 @@ TRAVEL EXPENSE COST (POST /travelExpense/cost):
 - For adding costs/expenses to a travel expense report
 - REQUIRED: travelExpense.id, costCategory.id, paymentType.id, date, amountCurrencyIncVat, currency.id
 - paymentType is an OBJECT with id — NOT a string! First GET /travelExpense/paymentType to find available types.
-- costCategory: GET /travelExpense/costCategory for categories (Bredbånd, Kontorrekvisita, Telefon, Bomavgift, Buss, etc.)
-- currency: {"id": 1} for NOK
+- costCategory: GET /travelExpense/costCategory for categories. Common IDs:
+  33233547=Bomavgift, 33233548=Buss, 33233554=Fly, 33233557=Hotell,
+  33233562=Mat, 33233564=Parkering, 33233569=Taxi, 33233571=Tog,
+  33233550=Drivstoff, 33233545=Telefon, 33233540=Kontorrekvisita
+- currency: {"id": 1} for NOK, {"id": 5} for EUR, {"id": 4} for USD
 
 CONTACT (POST /contact):
 - For adding contact persons to customers
