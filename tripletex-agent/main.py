@@ -135,32 +135,47 @@ Product unit IDs: 3628050=Liter, 3628051=Meter, 3628052=Kilometer, 3628053=Gram,
 
 Creating an invoice requires this exact sequence:
 1. POST /customer (create or GET existing)
-2. POST /product with priceExcludingVatCurrency and vatType
-3. POST /order with customer.id, deliveryDate, orderDate
-4. POST /order/orderline with order.id, product.id, count
-5. POST /invoice with invoiceDate, invoiceDueDate, orders: [{"id": order_id}]
+2. POST /product with priceExcludingVatCurrency and vatType.id (3 = 25% MVA)
+3. POST /order with customer.id, deliveryDate, orderDate. For project invoices: include project.id on the ORDER (NOT on orderline!)
+4. POST /order/orderline with order.id, product.id, count, unitPriceExcludingVatCurrency, vatType.id
+5. PUT /order/{orderId}/:invoice with query params: invoiceDate=YYYY-MM-DD, sendToCustomer=false
 
-### POST /order — Required: customer.id, deliveryDate, orderDate
-### POST /order/orderline — Required: order.id, product.id, count. Optional: unitPriceExcludingVatCurrency, vatType.id, description
-### POST /invoice — Required: invoiceDate, invoiceDueDate, orders (array of {id})
+CRITICAL: Invoicing uses PUT /order/{id}/:invoice — NOT POST /invoice!
+
+### POST /order
+Required: customer.id, deliveryDate, orderDate
+Optional: project.id (for project invoicing — set HERE, not on orderline)
+
+### POST /order/orderline
+Required: order.id, product.id, count, unitPriceExcludingVatCurrency, vatType.id
+Optional: description
+
+### PUT /order/{orderId}/:invoice — CREATE INVOICE
+This is how you create an invoice from an order.
+Query params: invoiceDate (YYYY-MM-DD), sendToCustomer (false)
+Returns the created invoice object with id.
 
 ### Register payment on invoice
-To mark an invoice as paid, PUT the invoice with paidAmount set to the full amount:
-PUT /invoice/{id} with body including paidAmount equal to the invoice amount.
-Or use paidAmountCurrency for specific currency amounts.
+PUT /invoice/{invoiceId}/:payment
+Query params: paymentDate (YYYY-MM-DD), paymentTypeId (33233580 for bank, 33233579 for cash), paidAmount (the amount)
+NOTE: paidAmount — NOT amount! Supports partial payments (call multiple times with partial amounts).
 
 ### Credit note
-PUT /invoice/{invoiceId}/:createCreditNote with params: date (YYYY-MM-DD), comment (optional), sendToCustomer=false
-This creates a new credit note invoice linked to the original. Returns the credit note invoice object.
-NOTE: Use PUT (not POST) and the path includes /:createCreditNote
+PUT /invoice/{invoiceId}/:createCreditNote
+Query params: date (YYYY-MM-DD), comment (optional), sendToCustomer=false
+Creates a credit note for the FULL amount. No partial credit notes via API.
+NOTE: Use PUT (not POST). Original invoice gets isCredited: true.
 
-### Payment types: id=33233579 Kontant, id=33233580 Betalt til bank
+### Payment types
+- id=33233579: Kontant (cash, debit account 1900)
+- id=33233580: Betalt til bank (bank, debit account 1920)
 
 ### DELETE operations in invoice flow
 - DELETE /order/{id} → 204 (only unfactured orders)
 - DELETE /order/orderline/{id} → 204
-- DELETE /invoice/{id} → 403 (cannot delete invoices!)
-- To reverse: use credit note instead
+- DELETE /invoice/{id} → 403 (CANNOT delete invoices — use credit note!)
+- DELETE /order/{id} on invoiced order → 422 ("Fakturaer er generert")
+- To reverse an invoice: use credit note (PUT /:createCreditNote)
 
 ## 6. TRAVEL EXPENSE
 
@@ -279,8 +294,19 @@ Prompt: "Lag en faktura til kunde Acme AS for 2 timer konsulentarbeid à 1200 NO
   {"method": "POST", "path": "/customer", "body": {"name": "Acme AS", "isCustomer": true}},
   {"method": "POST", "path": "/product", "body": {"name": "Konsulentarbeid", "number": "1001", "priceExcludingVatCurrency": 1200.0, "vatType": {"id": 3}}},
   {"method": "POST", "path": "/order", "body": {"customer": {"id": "$PREV_0_ID"}, "deliveryDate": "2026-03-20", "orderDate": "2026-03-20"}},
-  {"method": "POST", "path": "/order/orderline", "body": {"order": {"id": "$PREV_2_ID"}, "product": {"id": "$PREV_1_ID"}, "count": 2}},
-  {"method": "POST", "path": "/invoice", "body": {"invoiceDate": "2026-03-20", "invoiceDueDate": "2026-04-20", "orders": [{"id": "$PREV_2_ID"}]}}
+  {"method": "POST", "path": "/order/orderline", "body": {"order": {"id": "$PREV_2_ID"}, "product": {"id": "$PREV_1_ID"}, "count": 2, "unitPriceExcludingVatCurrency": 1200.0, "vatType": {"id": 3}}},
+  {"method": "PUT", "path": "/order/$PREV_2_ID/:invoice", "params": {"invoiceDate": "2026-03-20", "sendToCustomer": "false"}}
+]
+
+### Create invoice and register payment
+Prompt: "Fakturér kunde Test AS for produkt X og registrer betaling"
+[
+  {"method": "POST", "path": "/customer", "body": {"name": "Test AS", "isCustomer": true}},
+  {"method": "POST", "path": "/product", "body": {"name": "Produkt X", "number": "2001", "priceExcludingVatCurrency": 500.0, "vatType": {"id": 3}}},
+  {"method": "POST", "path": "/order", "body": {"customer": {"id": "$PREV_0_ID"}, "deliveryDate": "2026-03-20", "orderDate": "2026-03-20"}},
+  {"method": "POST", "path": "/order/orderline", "body": {"order": {"id": "$PREV_2_ID"}, "product": {"id": "$PREV_1_ID"}, "count": 1, "unitPriceExcludingVatCurrency": 500.0, "vatType": {"id": 3}}},
+  {"method": "PUT", "path": "/order/$PREV_2_ID/:invoice", "params": {"invoiceDate": "2026-03-20", "sendToCustomer": "false"}},
+  {"method": "PUT", "path": "/invoice/$PREV_4_ID/:payment", "params": {"paymentDate": "2026-03-20", "paymentTypeId": "33233580", "paidAmount": "625.0"}}
 ]
 
 ### Update employee
@@ -405,7 +431,12 @@ def execute_api_calls(calls, base_url, session_token):
             elif method == "POST":
                 resp = http_requests.post(url, auth=auth, json=body, timeout=30)
             elif method == "PUT":
-                resp = http_requests.put(url, auth=auth, json=body, timeout=30)
+                # Special PUT endpoints use query params instead of body
+                # e.g. /order/{id}/:invoice, /invoice/{id}/:payment, /invoice/{id}/:createCreditNote
+                if any(action in path for action in ['/:invoice', '/:payment', '/:createCreditNote', '/:send']):
+                    resp = http_requests.put(url, auth=auth, params=params, timeout=30)
+                else:
+                    resp = http_requests.put(url, auth=auth, json=body, timeout=30)
             elif method == "DELETE":
                 resp = http_requests.delete(url, auth=auth, timeout=30)
             else:
