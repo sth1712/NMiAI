@@ -62,44 +62,55 @@ EMPLOYEE (POST /employee):
   - "EXTENDED" — CAN be given admin/project manager roles via entitlements
   - "NO_ACCESS" — no login, but CAN be given project manager role
 - If the prompt says "kontoadministrator", "administrator", "admin" → use userType "EXTENDED"
-- If the employee will be a project manager → use userType "EXTENDED" or "NO_ACCESS"
+- If the employee will be a project manager → use userType "EXTENDED"
 - After creating employee who should be admin, ALSO call:
   POST /employee/entitlement {"employee": {"id": EMP_ID}, "entitlementId": 1, "customer": {"id": COMPANY_ID}}
 - If NO special role → use userType "STANDARD"
 - To get COMPANY_ID: GET /token/session/>whoAmI → response.value.companyId
+- Optional fields: phoneNumberMobile, dateOfBirth (YYYY-MM-DD), employeeNumber
+- For PUT /employee/{id}: You MUST include ALL fields from GET response + version field. dateOfBirth is REQUIRED for updates.
 
 CUSTOMER (POST /customer):
 - REQUIRED: name, isCustomer (set to true)
-- Optional: email, organizationNumber, phoneNumber
+- Optional: email, organizationNumber, phoneNumber, phoneNumberMobile
 - If ALSO supplier: set isSupplier: true in same call
+- For address: postalAddress: {"addressLine1": "...", "postalCode": "...", "city": "..."}
 - NOTE: /supplier is a separate endpoint for supplier-only entities
 
 SUPPLIER (POST /supplier):
 - REQUIRED: name
-- Optional: email, organizationNumber
+- Optional: email, organizationNumber, phoneNumber
 - Alternative: Use POST /customer with isSupplier: true, isCustomer: false
 
 PRODUCT (POST /product):
 - REQUIRED: name
-- Optional: number, priceExcludingVatCurrency, priceIncludingVatCurrency, costExcludingVatCurrency
+- Optional: number, priceExcludingVatCurrency, priceIncludingVatCurrency, costExcludingVatCurrency, description
 - CRITICAL: Field names end with "Currency" — use "priceExcludingVatCurrency" NOT "priceExcludingVat"
 - For VAT/MVA: use vatType with id. Standard 25% MVA = {"vatType": {"id": 3}}
 - vatType IDs: 3 = 25% standard, 5 = 15% food, 31 = 12% transport, 6 = 0% exempt
+- Currency IDs: 1=NOK, 2=SEK, 3=DKK, 4=USD, 5=EUR
 
 ORDER (POST /order):
 - REQUIRED: customer.id, deliveryDate, orderDate
 - Dates format: "YYYY-MM-DD"
 - Get customer.id from a previous POST /customer or GET /customer
 
+ORDER LINE (POST /order/orderline):
+- REQUIRED: order.id, product.id, count
+- Optional: unitPriceExcludingVatCurrency, vatType.id, description
+- Create order FIRST, then add order lines
+
 INVOICE (POST /invoice):
 - REQUIRED: invoiceDate, invoiceDueDate, orders (array of {id})
-- MUST create order first, then reference order id
-- Flow: POST /customer → POST /order (with customer.id) → POST /invoice (with order.id)
+- MUST create order first (with order lines), then reference order id
+- Flow: POST /customer → POST /order → POST /order/orderline → POST /invoice
+- NOTE: The Tripletex account needs a bank account number registered for invoicing to work
 
 TRAVEL EXPENSE (POST /travelExpense):
 - REQUIRED: employee.id, title
-- Date field is called "date" (NOT startDate/endDate/departureDate)
+- Date field is called "date" (NOT startDate, NOT endDate, NOT departureDate)
 - Optional: date (YYYY-MM-DD format), project.id, department.id
+- DELETE: DELETE /travelExpense/{id} — returns 204 on success
 
 PROJECT (POST /project):
 - REQUIRED: name, number, startDate, projectManager.id
@@ -113,16 +124,35 @@ PROJECT (POST /project):
 
 DEPARTMENT (POST /department):
 - REQUIRED: name
-- Optional: departmentNumber
+- Optional: departmentNumber (string, e.g. "200")
 
 ENTITLEMENTS (POST /employee/entitlement):
 - Used to assign roles/permissions to employees
 - REQUIRED: employee.id, entitlementId, customer.id (= companyId from whoAmI)
 - Key entitlementIds:
   - 1 = ROLE_ADMINISTRATOR (requires userType EXTENDED)
-  - 10 = AUTH_PROJECT_MANAGER (requires userType EXTENDED or NO_ACCESS)
+  - 10 = AUTH_PROJECT_MANAGER (requires entitlement 45 FIRST, requires userType EXTENDED)
   - 14 = AUTH_INVOICING
   - 15 = AUTH_CUSTOMER_ADMIN
+  - 45 = AUTH_CREATE_PROJECT (prerequisite for 10)
+
+SEARCHING FOR EXISTING ENTITIES:
+- GET /employee?firstName=X&lastName=Y&fields=id,firstName,lastName
+- GET /customer?name=X&fields=id,name
+- GET /product?name=X&fields=id,name
+- GET /project?name=X&fields=id,name
+- Always use fields parameter to reduce response size
+
+UPDATING ENTITIES (PUT):
+- PUT /employee/{id}: Must include id, version, and ALL fields. GET the entity first with fields=* to get current state.
+- PUT /customer/{id}: Same pattern — GET first, modify, PUT back with version.
+- Version field is required for optimistic locking — GET the latest version before PUT.
+
+DELETING ENTITIES:
+- DELETE /employee/{id}: Returns 403 in sandbox (may work in competition)
+- DELETE /travelExpense/{id}: Returns 204 on success
+- DELETE /customer/{id}: Returns 204 on success
+- Include the entity ID in the URL path
 
 GENERAL RULES:
 - Analyze the prompt carefully. Extract entity names, values, and relationships.
