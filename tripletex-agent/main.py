@@ -178,10 +178,35 @@ SEARCHING FOR EXISTING ENTITIES:
 - GET /project?name=X&fields=id,name
 - Always use fields parameter to reduce response size
 
-UPDATING ENTITIES (PUT):
-- PUT /employee/{id}: Must include id, version, and ALL fields. GET the entity first with fields=* to get current state.
-- PUT /customer/{id}: Same pattern — GET first, modify, PUT back with version.
-- Version field is required for optimistic locking — GET the latest version before PUT.
+UPDATING ENTITIES (PUT) — CRITICAL PATTERN:
+When updating an existing entity, you MUST follow this exact flow:
+1. GET the entity with fields=* to get ALL current values including version
+2. Modify the fields you want to change in the response
+3. PUT the ENTIRE object back (with id and version from step 1)
+
+For PUT /employee/{id}:
+- GET /employee?firstName=X&lastName=Y&fields=* (get full object with version)
+- Modify fields (e.g. phoneNumberMobile, dateOfBirth)
+- PUT /employee/{id} with the ENTIRE object including id, version, and dateOfBirth
+- dateOfBirth MUST be set (required for PUT even if not in prompt — use "1990-01-01" as default)
+
+For PUT /customer/{id}:
+- GET /customer?name=X&fields=* (get full object with version)
+- Modify fields
+- PUT /customer/{id} with entire object including id and version
+
+For PUT, use $MERGE_PREV_N to merge your changes with the GET response:
+
+Example — "Oppdater ansatten Erik med mobilnummer 41122334":
+[
+  {"method": "GET", "path": "/employee", "params": {"firstName": "Erik", "fields": "*"}},
+  {"method": "PUT", "path": "/employee/$PREV_0_ID", "body": {
+    "_merge": "$MERGE_PREV_0",
+    "phoneNumberMobile": "41122334",
+    "dateOfBirth": "1990-01-01"
+  }}
+]
+The $MERGE_PREV_0 tells the system to take ALL fields from the GET response (step 0) and overlay your changes on top. This ensures version, id, and all required fields are included automatically.
 
 DELETING ENTITIES:
 - DELETE /employee/{id}: Returns 403 in sandbox (may work in competition)
@@ -361,6 +386,28 @@ def execute_api_calls(calls, base_url, session_token):
         path = resolve_placeholders(path, results)
         params = resolve_placeholders(params, results)
         body = resolve_placeholders(body, results)
+
+        # For PUT: if body contains "$MERGE_PREV_N", merge body fields into the GET response
+        merge_pattern = r'\$MERGE_PREV_(\d+)'
+        body_str = json.dumps(body)
+        merge_match = re.search(merge_pattern, body_str)
+        if merge_match and method == "PUT":
+            idx = int(merge_match.group(1))
+            if idx < len(results) and results[idx]:
+                base_obj = None
+                if "value" in results[idx]:
+                    base_obj = results[idx]["value"]
+                elif "values" in results[idx] and results[idx]["values"]:
+                    base_obj = results[idx]["values"][0]
+                if base_obj:
+                    # Merge: start with GET response, overlay with body fields (except the merge marker)
+                    merged = dict(base_obj)
+                    for k, v in body.items():
+                        if isinstance(v, str) and re.match(merge_pattern, v):
+                            continue
+                        merged[k] = v
+                    body = merged
+                    logger.info(f"  Merged PUT body with PREV_{idx} ({len(merged)} fields)")
 
         url = f"{base_url}{path}"
         logger.info(f"Call {i}: {method} {url}")
