@@ -420,6 +420,122 @@ NOTE: 4 calls instead of 6! DEPARTMENT_ID and COMPANY_ID from ENVIRONMENT.
 """
 
 
+def clean_json_text(text):
+    """Clean JSON text from Gemini: remove comments, trailing commas, control chars, extract JSON."""
+    # Extract from markdown code blocks
+    if "```" in text:
+        parts = text.split("```")
+        for part in parts[1:]:
+            candidate = part.strip()
+            if candidate.startswith("json"):
+                candidate = candidate[4:].strip()
+            if candidate.startswith("[") or candidate.startswith("{"):
+                text = candidate
+                break
+
+    # Find JSON array or object if response has extra text
+    if not text.startswith("[") and not text.startswith("{"):
+        start_bracket = text.find("[")
+        start_brace = text.find("{")
+        if start_bracket >= 0 and (start_brace < 0 or start_bracket < start_brace):
+            end = text.rfind("]")
+            if end > start_bracket:
+                text = text[start_bracket:end+1]
+        elif start_brace >= 0:
+            end = text.rfind("}")
+            if end > start_brace:
+                text = text[start_brace:end+1]
+
+    # Remove control characters (except newline, tab)
+    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
+
+    # Remove single-line comments (// ...) that are NOT inside strings
+    # Strategy: remove lines that are only comments, and trailing comments after JSON values
+    lines = text.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('//'):
+            continue  # Skip full-line comments
+        # Remove trailing comments (after JSON value) — simple heuristic
+        # Only remove if // appears after a JSON value character and not inside a string
+        in_string = False
+        escape_next = False
+        comment_pos = None
+        for ci, ch in enumerate(line):
+            if escape_next:
+                escape_next = False
+                continue
+            if ch == '\\':
+                escape_next = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+            if not in_string and ci < len(line) - 1 and line[ci] == '/' and line[ci+1] == '/':
+                comment_pos = ci
+                break
+        if comment_pos is not None:
+            line = line[:comment_pos].rstrip()
+        cleaned_lines.append(line)
+    text = '\n'.join(cleaned_lines)
+
+    # Remove trailing commas before } or ]
+    text = re.sub(r',\s*([}\]])', r'\1', text)
+
+    return text.strip()
+
+
+def validate_calls(calls):
+    """Validate Gemini-generated API calls before execution. Returns (valid_calls, warnings)."""
+    valid_methods = {"GET", "POST", "PUT", "DELETE"}
+    validated = []
+    warnings = []
+
+    for i, call in enumerate(calls):
+        if not isinstance(call, dict):
+            warnings.append(f"Kall {i}: Ikke et gyldig objekt, hoppet over")
+            continue
+
+        method = call.get("method", "GET").upper()
+        path = call.get("path", "")
+
+        # Sjekk at metoden er gyldig
+        if method not in valid_methods:
+            warnings.append(f"Kall {i}: Ugyldig metode '{method}', endret til GET")
+            call["method"] = "GET"
+
+        # Sjekk at path starter med /
+        if path and not path.startswith("/") and not path.startswith("$"):
+            warnings.append(f"Kall {i}: Path '{path}' mangler ledende /, lagt til")
+            call["path"] = "/" + path
+
+        # Valider $PREV_N_ID referanser — sjekk at N er rimelig
+        path_str = json.dumps(call)
+        prev_refs = re.findall(r'\$PREV_(\d+)_', path_str)
+        merge_refs = re.findall(r'\$MERGE_PREV_(\d+)', path_str)
+
+        for ref_idx_str in prev_refs + merge_refs:
+            ref_idx = int(ref_idx_str)
+            if ref_idx >= i:
+                warnings.append(
+                    f"Kall {i}: Refererer til $PREV_{ref_idx} men er bare kall nr {i} "
+                    f"(kan bare referere til 0-{i-1})"
+                )
+            if ref_idx >= len(calls):
+                warnings.append(
+                    f"Kall {i}: Refererer til $PREV_{ref_idx} men det finnes bare {len(calls)} kall totalt"
+                )
+
+        validated.append(call)
+
+    if warnings:
+        logger.warning(f"Validering fant {len(warnings)} advarsler:")
+        for w in warnings:
+            logger.warning(f"  {w}")
+
+    return validated, warnings
+
+
 def resolve_placeholders(value, results):
     """Replace $PREV_N_ID and $PREV_N_FIELD_name placeholders with actual values from previous results."""
     if isinstance(value, str):
@@ -465,12 +581,19 @@ def resolve_placeholders(value, results):
     return value
 
 
-def execute_api_calls(calls, base_url, session_token):
+def execute_api_calls(calls, base_url, session_token, original_prompt=""):
     """Execute a sequence of Tripletex API calls."""
     auth = ("0", session_token)
     results = []
+    skip_remaining = 0  # Number of original calls to skip (handled by retry)
 
     for i, call in enumerate(calls):
+        # Skip calls that were already handled by a retry replan
+        if skip_remaining > 0:
+            skip_remaining -= 1
+            logger.info(f"Call {i}: SKIPPED (handled by retry replan)")
+            continue
+
         method = call.get("method", "GET").upper()
         path = call.get("path", "")
         params = call.get("params", {})
@@ -505,7 +628,7 @@ def execute_api_calls(calls, base_url, session_token):
         url = f"{base_url}{path}"
         logger.info(f"Call {i}: {method} {url}")
         if body:
-            logger.info(f"  Body: {json.dumps(body)[:300]}")
+            logger.info(f"  Body: {json.dumps(body)[:1000]}")
 
         try:
             if method == "GET":
@@ -528,15 +651,35 @@ def execute_api_calls(calls, base_url, session_token):
             logger.info(f"  → {resp.status_code}")
 
             if resp.status_code >= 400:
-                error_text = resp.text[:500]
-                logger.warning(f"  → Error: {error_text}")
+                error_text = resp.text[:1000]
+                logger.warning(f"  → Error: {error_text[:500]}")
                 results.append({"error": resp.status_code, "detail": error_text})
 
                 # Try to fix with Gemini on validation errors
                 if resp.status_code in (400, 422):
-                    fix = try_fix_call(call, error_text, base_url, auth, results)
-                    if fix:
-                        results[-1] = fix
+                    fix = try_fix_call(
+                        call, error_text, base_url, auth, results,
+                        all_calls=calls, call_index=i,
+                        original_prompt=original_prompt
+                    )
+                    if fix and isinstance(fix, dict) and "first_result" in fix:
+                        # Replace the failed result with the fixed one
+                        first = fix["first_result"]
+                        if first and not (isinstance(first, dict) and "error" in first):
+                            results[-1] = first
+                        elif first:
+                            results[-1] = first
+
+                        # Append remaining retry results and skip corresponding original calls
+                        remaining = fix.get("remaining_results", [])
+                        if remaining:
+                            results.extend(remaining)
+                            # Skip the remaining original calls that were replanned
+                            skip_remaining = len(calls) - (i + 1)
+                            logger.info(
+                                f"  → Retry replanned {len(remaining)} additional calls, "
+                                f"skipping {skip_remaining} original remaining calls"
+                            )
             else:
                 try:
                     results.append(resp.json())
@@ -550,45 +693,198 @@ def execute_api_calls(calls, base_url, session_token):
     return results
 
 
-def try_fix_call(original_call, error_text, base_url, auth, results):
-    """Ask Gemini to fix a failed API call based on the error message."""
-    fix_prompt = f"""The following Tripletex API call failed:
+def try_fix_call(original_call, error_text, base_url, auth, results,
+                  all_calls=None, call_index=0, original_prompt=""):
+    """Ask Gemini to replan the remaining API calls given full context.
+
+    Sends: original task, results so far, the failed call + error, and remaining planned calls.
+    Gemini returns a JSON array of corrected/remaining calls to execute.
+    """
+    # Build context of what has succeeded so far
+    results_summary = []
+    for ri, r in enumerate(results):
+        if r is None:
+            results_summary.append(f"Call {ri}: no result")
+        elif isinstance(r, dict) and "error" in r:
+            results_summary.append(f"Call {ri}: ERROR {r['error']} — {r.get('detail', '')[:200]}")
+        elif isinstance(r, dict):
+            # Summarize successful result
+            if "value" in r:
+                val = r["value"]
+                summary_fields = {k: v for k, v in val.items()
+                                  if k in ("id", "name", "firstName", "lastName", "email",
+                                           "amount", "status", "number", "version")}
+                results_summary.append(f"Call {ri}: OK — {json.dumps(summary_fields)}")
+            elif "values" in r:
+                count = len(r.get("values", []))
+                first_id = r["values"][0].get("id") if r["values"] else None
+                results_summary.append(f"Call {ri}: OK — {count} results, first id={first_id}")
+            else:
+                results_summary.append(f"Call {ri}: OK — {json.dumps(r)[:150]}")
+        else:
+            results_summary.append(f"Call {ri}: OK — {str(r)[:150]}")
+
+    # Build remaining calls context
+    remaining_calls = []
+    if all_calls and call_index + 1 < len(all_calls):
+        remaining_calls = all_calls[call_index + 1:]
+
+    fix_prompt = f"""You are fixing a failed Tripletex API call sequence.
+
+ORIGINAL TASK: {original_prompt[:2000]}
+
+RESULTS SO FAR (calls 0 to {len(results)-2} succeeded, call {call_index} failed):
+{chr(10).join(results_summary[:-1]) if len(results_summary) > 1 else "No previous calls."}
+
+FAILED CALL (index {call_index}):
 {json.dumps(original_call, indent=2)}
 
-Error response: {error_text}
+ERROR:
+{error_text[:1000]}
 
-Fix the API call. Return ONLY a corrected JSON object (single call, not array). No explanation."""
+REMAINING PLANNED CALLS AFTER THE FAILED ONE:
+{json.dumps(remaining_calls, indent=2) if remaining_calls else "None — this was the last call."}
+
+Return a JSON ARRAY of corrected API calls to execute NOW (the fixed version of the failed call + any remaining calls needed to complete the task).
+Use $PREV_N_ID where N refers to the ORIGINAL call indices (0-based from the start of the full sequence).
+Also use $RETRY_N_ID to reference the Nth call in YOUR returned array (0-based).
+
+IMPORTANT: Return ONLY a valid JSON array. No markdown, no explanation, no comments."""
 
     try:
         response = client.models.generate_content(
             model=MODEL_NAME,
             contents=fix_prompt,
-            config={"temperature": 0.1, "max_output_tokens": 2048},
+            config={"temperature": 0.1, "max_output_tokens": 4096},
         )
-        text = response.text.strip()
-        if "```" in text:
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-            text = text.strip()
+        text = clean_json_text(response.text.strip())
+        logger.info(f"  → Fix response length: {len(text)}")
 
-        fixed_call = json.loads(text)
-        method = fixed_call.get("method", "POST").upper()
-        path = fixed_call.get("path", original_call.get("path", ""))
-        body = resolve_placeholders(fixed_call.get("body", {}), results)
-        url = f"{base_url}{path}"
-
-        logger.info(f"  → Retry: {method} {url}")
-        if method == "POST":
-            resp = http_requests.post(url, auth=auth, json=body, timeout=30)
-        elif method == "PUT":
-            resp = http_requests.put(url, auth=auth, json=body, timeout=30)
-        else:
+        fixed_calls = json.loads(text)
+        if isinstance(fixed_calls, dict):
+            fixed_calls = [fixed_calls]
+        if not isinstance(fixed_calls, list) or len(fixed_calls) == 0:
+            logger.warning("  → Fix returned empty or invalid response")
             return None
 
-        logger.info(f"  → Retry: {resp.status_code}")
-        if resp.status_code < 400:
-            return resp.json()
+        logger.info(f"  → Fix planned {len(fixed_calls)} replacement calls")
+
+        # Execute the fixed calls
+        retry_results = []
+        all_available_results = list(results)  # Copy of results including the error
+
+        for fi, fixed_call in enumerate(fixed_calls):
+            method = fixed_call.get("method", "GET").upper()
+            path = fixed_call.get("path", "")
+            params = fixed_call.get("params", {})
+            body = fixed_call.get("body", {})
+
+            # Resolve $PREV_N references against original results
+            path = resolve_placeholders(path, all_available_results)
+            params = resolve_placeholders(params, all_available_results)
+            body = resolve_placeholders(body, all_available_results)
+
+            # Resolve $RETRY_N_ID references against retry_results
+            def resolve_retry_refs(value):
+                if isinstance(value, str):
+                    retry_match = re.search(r'\$RETRY_(\d+)_ID', value)
+                    if retry_match:
+                        ridx = int(retry_match.group(1))
+                        if ridx < len(retry_results) and retry_results[ridx]:
+                            rr = retry_results[ridx]
+                            rid = None
+                            if isinstance(rr, dict):
+                                if "value" in rr:
+                                    rid = rr["value"].get("id")
+                                elif "values" in rr and rr["values"]:
+                                    rid = rr["values"][0].get("id")
+                                elif "id" in rr:
+                                    rid = rr["id"]
+                            if rid is not None:
+                                if value == retry_match.group(0):
+                                    return rid
+                                return value.replace(retry_match.group(0), str(rid))
+                    return value
+                elif isinstance(value, dict):
+                    return {k: resolve_retry_refs(v) for k, v in value.items()}
+                elif isinstance(value, list):
+                    return [resolve_retry_refs(v) for v in value]
+                return value
+
+            path = resolve_retry_refs(path)
+            params = resolve_retry_refs(params)
+            body = resolve_retry_refs(body)
+
+            # Handle $MERGE_PREV_N for PUT
+            merge_pattern = r'\$MERGE_PREV_(\d+)'
+            body_str = json.dumps(body)
+            merge_match = re.search(merge_pattern, body_str)
+            if merge_match and method == "PUT":
+                idx = int(merge_match.group(1))
+                source = all_available_results if idx < len(all_available_results) else retry_results
+                source_idx = idx if idx < len(all_available_results) else idx - len(all_available_results)
+                if source_idx < len(source) and source[source_idx]:
+                    base_obj = None
+                    if "value" in source[source_idx]:
+                        base_obj = source[source_idx]["value"]
+                    elif "values" in source[source_idx] and source[source_idx]["values"]:
+                        base_obj = source[source_idx]["values"][0]
+                    if base_obj:
+                        merged = dict(base_obj)
+                        for k, v in body.items():
+                            if isinstance(v, str) and re.match(merge_pattern, v):
+                                continue
+                            merged[k] = v
+                        body = merged
+
+            url = f"{base_url}{path}"
+            logger.info(f"  → Retry {fi}: {method} {url}")
+            if body:
+                logger.info(f"    Body: {json.dumps(body)[:1000]}")
+
+            try:
+                if method == "GET":
+                    resp = http_requests.get(url, auth=auth, params=params, timeout=30)
+                elif method == "POST":
+                    resp = http_requests.post(url, auth=auth, json=body, timeout=30)
+                elif method == "PUT":
+                    if any(action in path for action in
+                           ['/:invoice', '/:payment', '/:createCreditNote', '/:send']):
+                        resp = http_requests.put(url, auth=auth, params=params, timeout=30)
+                    else:
+                        resp = http_requests.put(url, auth=auth, json=body, timeout=30)
+                elif method == "DELETE":
+                    resp = http_requests.delete(url, auth=auth, timeout=30)
+                else:
+                    retry_results.append(None)
+                    continue
+
+                logger.info(f"  → Retry {fi}: {resp.status_code}")
+
+                if resp.status_code >= 400:
+                    error = resp.text[:500]
+                    logger.warning(f"  → Retry {fi} error: {error}")
+                    retry_results.append({"error": resp.status_code, "detail": error})
+                else:
+                    try:
+                        retry_results.append(resp.json())
+                    except Exception:
+                        retry_results.append({"status_code": resp.status_code})
+
+            except Exception as e:
+                logger.error(f"  → Retry {fi} exception: {e}")
+                retry_results.append(None)
+
+        # Return first successful result (to replace the failed call in results)
+        # Also return remaining results to be appended
+        first_result = retry_results[0] if retry_results else None
+        remaining = retry_results[1:] if len(retry_results) > 1 else []
+
+        return {"first_result": first_result, "remaining_results": remaining}
+
+    except json.JSONDecodeError as e:
+        logger.error(f"  → Fix JSON parse error: {e}")
+        logger.error(f"  → Fix text: {text[:500] if 'text' in dir() else 'N/A'}")
     except Exception as e:
         logger.error(f"  → Fix failed: {e}")
     return None
@@ -720,28 +1016,23 @@ Since department_id and company_id are already known, you do NOT need to call GE
             contents=[SYSTEM_PROMPT + env_block, user_prompt],
             config={"temperature": 0.1, "max_output_tokens": 16384},
         )
-        text = response.text.strip()
-        logger.info(f"Gemini raw response length: {len(text)}")
+        raw_text = response.text.strip()
+        logger.info(f"Gemini raw response length: {len(raw_text)}")
 
-        # Extract JSON from response (handle markdown code blocks)
-        if "```" in text:
-            parts = text.split("```")
-            for part in parts[1:]:
-                candidate = part.strip()
-                if candidate.startswith("json"):
-                    candidate = candidate[4:].strip()
-                if candidate.startswith("["):
-                    text = candidate
-                    break
+        # Use robust JSON cleaning
+        text = clean_json_text(raw_text)
 
-        # Try to find JSON array if response has extra text
-        if not text.startswith("["):
-            start = text.find("[")
-            end = text.rfind("]")
-            if start >= 0 and end > start:
-                text = text[start:end+1]
-
-        calls = json.loads(text)
+        try:
+            calls = json.loads(text)
+        except json.JSONDecodeError:
+            # Last resort: try to fix common issues
+            logger.warning(f"Initial JSON parse failed, attempting additional cleanup")
+            # Try removing any non-JSON prefix/suffix
+            text_stripped = text.strip()
+            if text_stripped:
+                calls = json.loads(text_stripped)
+            else:
+                raise
         if not isinstance(calls, list):
             calls = [calls]
 
@@ -761,21 +1052,7 @@ Task: {prompt}"""
                 contents=[SYSTEM_PROMPT, fallback_prompt],
                 config={"temperature": 0.3, "max_output_tokens": 4096},
             )
-            retry_text = retry_response.text.strip()
-            if "```" in retry_text:
-                parts = retry_text.split("```")
-                for part in parts[1:]:
-                    candidate = part.strip()
-                    if candidate.startswith("json"):
-                        candidate = candidate[4:].strip()
-                    if candidate.startswith("["):
-                        retry_text = candidate
-                        break
-            if not retry_text.startswith("["):
-                start = retry_text.find("[")
-                end = retry_text.rfind("]")
-                if start >= 0 and end > start:
-                    retry_text = retry_text[start:end+1]
+            retry_text = clean_json_text(retry_response.text.strip())
             try:
                 calls = json.loads(retry_text)
                 if not isinstance(calls, list):
@@ -783,6 +1060,9 @@ Task: {prompt}"""
                 logger.info(f"Fallback produced {len(calls)} API calls")
             except Exception:
                 logger.error(f"Fallback also failed: {retry_text[:200]}")
+
+        # Validate calls before execution
+        calls, validation_warnings = validate_calls(calls)
 
         logger.info(f"Planned {len(calls)} API calls:")
         for i, c in enumerate(calls):
@@ -798,7 +1078,7 @@ Task: {prompt}"""
 
     # Execute
     try:
-        results = execute_api_calls(calls, base_url, session_token)
+        results = execute_api_calls(calls, base_url, session_token, original_prompt=prompt)
         # Log summary
         successes = sum(1 for r in results if r and not (isinstance(r, dict) and "error" in r))
         failures = len(results) - successes
