@@ -56,6 +56,12 @@ You get BONUS for:
 
 Therefore: plan carefully, include all required fields, avoid unnecessary GET calls. Never guess — use known IDs from this prompt when possible.
 
+## CRITICAL: NEVER return an empty array!
+If you don't know the exact API calls for a task, ALWAYS try your best guess based on the prompt.
+Any attempt is better than no attempt — an empty array guarantees 0 points.
+Read the prompt carefully, identify what entities need to be created/modified/deleted, and plan API calls accordingly.
+Even if you're unsure about exact field names, try with reasonable guesses — the system will attempt to fix errors automatically.
+
 ## Defaults
 - Dates: "YYYY-MM-DD", default "2026-03-20" if not specified
 - Due dates for invoices: default 30 days after invoice date
@@ -610,6 +616,45 @@ async def solve(request: Request):
         calls = json.loads(text)
         if not isinstance(calls, list):
             calls = [calls]
+
+        # FALLBACK: If Gemini returns empty array, retry with explicit instruction
+        if len(calls) == 0:
+            logger.warning("Gemini returned empty array — retrying with fallback prompt")
+            fallback_prompt = f"""The task below MUST be attempted. You returned an empty array last time which scores 0 points.
+Even if you're unsure, plan your best guess at API calls. Any attempt scores more than nothing.
+
+The Tripletex API has these endpoints: /employee, /customer, /supplier, /product, /order, /order/orderline, /invoice, /travelExpense, /travelExpense/cost, /project, /department, /contact, /salary/payslip, /salary/transaction, /ledger/voucher, /ledger/account.
+
+Read the task carefully. What entities are mentioned? Create/modify/delete them.
+
+Task: {prompt}"""
+            retry_response = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=[SYSTEM_PROMPT, fallback_prompt],
+                config={"temperature": 0.3, "max_output_tokens": 4096},
+            )
+            retry_text = retry_response.text.strip()
+            if "```" in retry_text:
+                parts = retry_text.split("```")
+                for part in parts[1:]:
+                    candidate = part.strip()
+                    if candidate.startswith("json"):
+                        candidate = candidate[4:].strip()
+                    if candidate.startswith("["):
+                        retry_text = candidate
+                        break
+            if not retry_text.startswith("["):
+                start = retry_text.find("[")
+                end = retry_text.rfind("]")
+                if start >= 0 and end > start:
+                    retry_text = retry_text[start:end+1]
+            try:
+                calls = json.loads(retry_text)
+                if not isinstance(calls, list):
+                    calls = [calls]
+                logger.info(f"Fallback produced {len(calls)} API calls")
+            except Exception:
+                logger.error(f"Fallback also failed: {retry_text[:200]}")
 
         logger.info(f"Planned {len(calls)} API calls:")
         for i, c in enumerate(calls):
