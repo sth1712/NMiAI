@@ -43,13 +43,49 @@ def count_entities(entity_type, params=None):
     return -1
 
 def search_entity(entity_type, **kwargs):
-    """Search for entity by fields."""
-    params = {"fields": "id,name,firstName,lastName,email"}
-    params.update(kwargs)
-    r = requests.get(f"{SANDBOX_URL}/{entity_type}", auth=auth, params=params)
-    if r.status_code == 200:
-        return r.json().get("values", [])
-    return []
+    """Search for entity by fields.
+    Fetches a list of recent entities and filters them locally
+    to avoid API search implementation quirks.
+    """
+    # Define fields appropriate for each entity type to prevent 400 errors
+    field_map = {
+        "employee": "id,firstName,lastName,email,employeeNumber",
+        "customer": "id,name,email,organizationNumber",
+        "product": "id,name,number,priceExcludingVatCurrency",
+        "department": "id,name,departmentNumber",
+        "supplier": "id,name,email,organizationNumber",
+    }
+    fields = field_map.get(entity_type, "id,name,email") # Default to common fields
+
+    # Fetch a list of the most recent entities
+    params = {"fields": fields, "count": 250}
+    try:
+        r = requests.get(f"{SANDBOX_URL}/{entity_type}", auth=auth, params=params, timeout=20)
+        if r.status_code != 200:
+            print(f"  (Search query failed for {entity_type} with status {r.status_code}, params {params})")
+            return []
+        values = r.json().get("values", [])
+    except requests.exceptions.RequestException as e:
+        print(f"  (Search query failed for {entity_type}: {e})")
+        return []
+
+    if not values:
+        return []
+
+    # Filter the results locally
+    filtered_results = []
+    for item in values:
+        match = True
+        for key, value in kwargs.items():
+            item_value = item.get(key)
+            # Ensure we are comparing strings, handle None gracefully
+            if item_value is None or str(value).lower() not in str(item_value).lower():
+                match = False
+                break
+        if match:
+            filtered_results.append(item)
+
+    return filtered_results
 
 # ===== TESTS =====
 
@@ -100,7 +136,7 @@ def test_customer():
     name = f"TestKunde {ts} AS"
 
     code, text = send_task(f"Opprett en kunde med navn {name}, e-post kunde{ts}@test.no")
-    found = search_entity("customer", name=name[:20])
+    found = search_entity("customer", name=name)
 
     ok = len(found) > 0
     print(f"{'✅' if ok else '❌'} Kunde opprettet: {ok}")
@@ -111,7 +147,7 @@ def test_product():
     ts = int(time.time())
 
     code, text = send_task(f"Opprett produktet \"Konsulenttime {ts}\" med produktnummer {ts}. Prisen er 1200 NOK eksklusiv MVA, med standard 25% MVA-sats.")
-    found = search_entity("product", name=f"Konsulenttime {ts}")
+    found = search_entity("product", number=str(ts))
 
     ok = len(found) > 0
     if found:
@@ -124,12 +160,10 @@ def test_product():
 def test_department():
     print("\n=== Opprett avdeling ===")
     ts = int(time.time())
+    name = f"TestAvdeling {ts}"
 
-    code, text = send_task(f"Opprett en avdeling med navn Salg og avdelingsnummer {ts % 1000}")
-
-    # Sjekk om avdelingen finnes
-    r = requests.get(f"{SANDBOX_URL}/department", auth=auth, params={"name": "Salg", "fields": "id,name"})
-    found = [d for d in r.json().get("values", []) if "Salg" in d.get("name", "")]
+    code, text = send_task(f"Opprett en avdeling med navn {name} og avdelingsnummer {ts % 1000}")
+    found = search_entity("department", name=name)
 
     ok = len(found) > 0
     print(f"{'✅' if ok else '❌'} Avdeling opprettet: {ok}")
@@ -141,9 +175,7 @@ def test_supplier():
     name = f"Leverandør {ts} AS"
 
     code, text = send_task(f"Opprett en leverandør med navn {name}, e-post lev{ts}@test.no")
-
-    r = requests.get(f"{SANDBOX_URL}/supplier", auth=auth, params={"fields": "id,name", "count": 100})
-    found = [s for s in r.json().get("values", []) if str(ts) in s.get("name", "")]
+    found = search_entity("supplier", name=name)
 
     ok = len(found) > 0
     print(f"{'✅' if ok else '❌'} Leverandør opprettet: {ok}")
@@ -154,7 +186,7 @@ def test_spanish_prompt():
     ts = int(time.time())
 
     code, text = send_task(f'Crea el producto "Servicio {ts}" con número de producto {ts}. El precio es 850 NOK sin IVA, con la tasa estándar del 25%.')
-    found = search_entity("product", name=f"Servicio {ts}")
+    found = search_entity("product", number=str(ts))
 
     ok = len(found) > 0
     print(f"{'✅' if ok else '❌'} Spansk produkt opprettet: {ok}")
