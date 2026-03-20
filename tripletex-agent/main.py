@@ -249,6 +249,8 @@ CRITICAL: Each posting MUST have the "row" field (integer, starting at 1)! Witho
 Each posting requires: date, account.id, amount, amountCurrency, amountGross, amountGrossCurrency, currency.id, row, description
 Postings MUST balance (sum of amounts = 0). Positive = debit, negative = credit.
 
+NOTE: The only supported accounting dimensions are "Department" and "Project".
+
 Common accounts: 1920=Bankinnskudd, 2400=Leverandørgjeld, 2700=Utg MVA høy, 2710=Inng MVA høy, 3000=Salgsinntekt, 6800=Kontorrekvisita, 6900=Telefon, 7100=Kontortjenester
 
 ### GET /ledger/account
