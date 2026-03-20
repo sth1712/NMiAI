@@ -148,6 +148,7 @@ Creating an invoice requires this exact sequence:
 5. PUT /order/{orderId}/:invoice with query params: invoiceDate=YYYY-MM-DD, sendToCustomer=false
 
 CRITICAL: Invoicing uses PUT /order/{id}/:invoice — NOT POST /invoice!
+CRITICAL: GET /invoice REQUIRES invoiceDateFrom and invoiceDateTo params! Always include: invoiceDateFrom=2020-01-01, invoiceDateTo=2030-12-31
 
 ### POST /order
 Required: customer.id, deliveryDate, orderDate
@@ -341,11 +342,12 @@ Prompt: "Lag en faktura til kunde Acme AS for 2 timer konsulentarbeid à 1200 NO
 ### Register payment on EXISTING invoice (Tier 2 — common!)
 Prompt: "Customer X has outstanding invoice. Register full payment."
 IMPORTANT: The invoice ALREADY EXISTS. Do NOT create customer/product/order. Just find and pay it.
+CRITICAL: GET /invoice REQUIRES invoiceDateFrom and invoiceDateTo params! Use a wide range like "2020-01-01" to "2030-12-31".
 [
-  {"method": "GET", "path": "/invoice", "params": {"fields": "id,amount,amountOutstanding"}},
-  {"method": "PUT", "path": "/invoice/$PREV_0_ID/:payment", "params": {"paymentDate": "2026-03-20", "paymentTypeId": "33233580", "paidAmount": "$PREV_0_FIELD_amount"}}
+  {"method": "GET", "path": "/invoice", "params": {"invoiceDateFrom": "2020-01-01", "invoiceDateTo": "2030-12-31", "fields": "id,amount,amountOutstanding,customer"}},
+  {"method": "PUT", "path": "/invoice/$PREV_0_ID/:payment", "params": {"paymentDate": "2026-03-20", "paymentTypeId": "PAYMENT_TYPE_BANK_ID", "paidAmount": "$PREV_0_FIELD_amount"}}
 ]
-$PREV_0_FIELD_amount gets the "amount" field from the first call's response. Use this for dynamic values.
+NOTE: Replace PAYMENT_TYPE_BANK_ID with invoice_payment_type_bank_id from ENVIRONMENT section.
 
 ### Create NEW invoice and register payment
 Prompt: "Fakturér kunde Test AS for produkt X og registrer betaling"
