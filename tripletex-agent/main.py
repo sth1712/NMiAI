@@ -67,15 +67,19 @@ EMPLOYEE (POST /employee):
   POST /employee/entitlement {"employee": {"id": EMP_ID}, "entitlementId": 1, "customer": {"id": COMPANY_ID}}
 - If NO special role → use userType "STANDARD"
 - To get COMPANY_ID: GET /token/session/>whoAmI → response.value.companyId
-- Optional fields: phoneNumberMobile, dateOfBirth (YYYY-MM-DD), employeeNumber
+- Optional fields: phoneNumberMobile, dateOfBirth (YYYY-MM-DD), employeeNumber, address (same format as customer)
 - For PUT /employee/{id}: You MUST include ALL fields from GET response + version field. dateOfBirth is REQUIRED for updates.
+- Email is REQUIRED — Tripletex rejects employees without email
+- Duplicate emails are NOT allowed — each employee must have a unique email
 
 CUSTOMER (POST /customer):
 - REQUIRED: name, isCustomer (set to true)
-- Optional: email, organizationNumber, phoneNumber, phoneNumberMobile
-- For address: postalAddress: {"addressLine1": "...", "postalCode": "...", "city": "..."}
+- Optional: email, organizationNumber, phoneNumber, phoneNumberMobile, invoiceEmail, language (NO or EN only)
+- For address: include postalAddress OBJECT in the body: "postalAddress": {"addressLine1": "Gata 1", "postalCode": "0154", "city": "Oslo"}
+- For private individuals: isPrivateIndividual: true
 - ONLY use this for CUSTOMERS. If the prompt says "leverandør"/"supplier" WITHOUT "kunde"/"customer", use /supplier instead!
 - If BOTH customer AND supplier: set isCustomer: true, isSupplier: true
+- Duplicate names are allowed — Tripletex does not enforce unique names
 
 SUPPLIER (POST /supplier):
 - Use this when the prompt says "leverandør" or "supplier" and does NOT say "kunde" or "customer"
