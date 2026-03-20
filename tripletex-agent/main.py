@@ -1085,18 +1085,35 @@ async def solve(request: Request):
             pass
 
         # 9. Get common ledger account IDs (for vouchers/supplier invoices)
-        for acc_num in ["2400", "2710", "6800"]:
-            try:
-                la_resp = http_requests.get(
-                    f"{base_url}/ledger/account", auth=auth,
-                    params={"numberFrom": acc_num, "numberTo": acc_num, "fields": "id,number,name"},
-                    timeout=10
-                )
-                if la_resp.status_code == 200 and la_resp.json().get("values"):
-                    acc = la_resp.json()["values"][0]
-                    env_info[f"account_{acc_num}_id"] = acc["id"]
-            except Exception:
-                pass
+        try:
+            la_resp = http_requests.get(
+                f"{base_url}/ledger/account", auth=auth,
+                params={"fields": "id,number,name", "count": 1000},
+                timeout=15
+            )
+            if la_resp.status_code == 200 and la_resp.json().get("values"):
+                for acc in la_resp.json()["values"]:
+                    acc_num = str(acc.get("number", ""))
+                    if acc_num == "2400":
+                        env_info["account_2400_id"] = acc["id"]
+                    elif acc_num == "2710":
+                        env_info["account_2710_id"] = acc["id"]
+                    elif acc_num == "6800":
+                        env_info["account_6800_id"] = acc["id"]
+                    elif acc_num == "6500":
+                        env_info["account_6500_id"] = acc["id"]
+                    elif acc_num == "7100":
+                        env_info["account_7100_id"] = acc["id"]
+                    elif acc_num == "1500":
+                        env_info["account_1500_id"] = acc["id"]
+                    elif acc_num == "1920":
+                        env_info["account_1920_id"] = acc["id"]
+                    elif acc_num == "2700":
+                        env_info["account_2700_id"] = acc["id"]
+                    elif acc_num == "3000":
+                        env_info["account_3000_id"] = acc["id"]
+        except Exception:
+            pass
 
         logger.info(f"Pre-flight done: {json.dumps(env_info)}")
 
@@ -1119,11 +1136,19 @@ async def solve(request: Request):
 - voucher_type_customer_id: {env_info.get('voucher_type_customer_id', 'unknown')}
 - activity_ids: {json.dumps(env_info.get('activity_ids', []))}
 - salary_type_ids: {json.dumps(env_info.get('salary_type_ids', []))}
+- account_1500_id (Kundefordringer): {env_info.get('account_1500_id', 'unknown')}
+- account_1920_id (Bankinnskudd): {env_info.get('account_1920_id', 'unknown')}
 - account_2400_id (Leverandørgjeld): {env_info.get('account_2400_id', 'unknown')}
+- account_2700_id (Utgående MVA): {env_info.get('account_2700_id', 'unknown')}
 - account_2710_id (Inngående MVA): {env_info.get('account_2710_id', 'unknown')}
+- account_3000_id (Salgsinntekt): {env_info.get('account_3000_id', 'unknown')}
+- account_6500_id (Kontortjenester): {env_info.get('account_6500_id', 'unknown')}
 - account_6800_id (Kontorrekvisita): {env_info.get('account_6800_id', 'unknown')}
+- account_7100_id (Kontortjenester 2): {env_info.get('account_7100_id', 'unknown')}
 
-Since department_id, company_id, and other IDs are already known, you do NOT need to call GET for them. Use the values above directly. This saves API calls and improves your efficiency score.
+IMPORTANT: Each account ID above is UNIQUE. Use the CORRECT account for each posting. For supplier invoices, the expense account depends on what the prompt says (e.g. "kontorrekvisita" = account_6800_id, "kontortjenester" = account_6500_id or account_7100_id).
+
+Since department_id, company_id, account IDs and other IDs are already known, you do NOT need to call GET for them. Use the values above directly. This saves API calls and improves your efficiency score.
 """
 
     user_prompt = f"Task prompt:\n{prompt}"
