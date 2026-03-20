@@ -357,8 +357,9 @@ Prompt: "Fakturér kunde Test AS for produkt X og registrer betaling"
   {"method": "POST", "path": "/order", "body": {"customer": {"id": "$PREV_0_ID"}, "deliveryDate": "2026-03-20", "orderDate": "2026-03-20"}},
   {"method": "POST", "path": "/order/orderline", "body": {"order": {"id": "$PREV_2_ID"}, "product": {"id": "$PREV_1_ID"}, "count": 1, "unitPriceExcludingVatCurrency": 500.0, "vatType": {"id": 3}}},
   {"method": "PUT", "path": "/order/$PREV_2_ID/:invoice", "params": {"invoiceDate": "2026-03-20", "sendToCustomer": "false"}},
-  {"method": "PUT", "path": "/invoice/$PREV_4_ID/:payment", "params": {"paymentDate": "2026-03-20", "paymentTypeId": "33233580", "paidAmount": "625.0"}}
+  {"method": "PUT", "path": "/invoice/$PREV_4_ID/:payment", "params": {"paymentDate": "2026-03-20", "paymentTypeId": "PAYMENT_TYPE_BANK_ID", "paidAmount": "625.0"}}
 ]
+NOTE: This example also uses PAYMENT_TYPE_BANK_ID from the environment.
 
 ### Update employee
 Prompt: "Oppdater ansatten Erik med mobilnummer 41122334"
