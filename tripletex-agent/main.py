@@ -87,7 +87,7 @@ Keyword → userType mapping:
 - "prosjektleder" / "project manager" → EXTENDED + entitlements 45 then 10
 - No special role mentioned → STANDARD
 
-department.id: GET /department with params {"count": 1} to get the first department's id.
+department.id: Use the department_id from ENVIRONMENT section (pre-fetched). Do NOT call GET /department.
 
 ### PUT /employee/{id}
 Use $MERGE_PREV pattern (see Update section below).
@@ -274,21 +274,20 @@ Verified delete operations:
 
 ## Tier 1: Simple entity creation
 
-### Create employee
+### Create employee (uses ENVIRONMENT values — no GET calls needed!)
 Prompt: "Opprett en ansatt Ola Nordmann, ola@example.org"
 [
-  {"method": "GET", "path": "/department", "params": {"count": 1}},
-  {"method": "POST", "path": "/employee", "body": {"firstName": "Ola", "lastName": "Nordmann", "email": "ola@example.org", "userType": "STANDARD", "department": {"id": "$PREV_0_ID"}}}
+  {"method": "POST", "path": "/employee", "body": {"firstName": "Ola", "lastName": "Nordmann", "email": "ola@example.org", "userType": "STANDARD", "department": {"id": DEPARTMENT_ID}}}
 ]
+NOTE: Replace DEPARTMENT_ID with the department_id value from the ENVIRONMENT section. Just 1 call instead of 2!
 
-### Create employee with admin role
+### Create employee with admin role (uses ENVIRONMENT values)
 Prompt: "Opprett ansatt Kari Nordmann, kari@example.org. Hun skal være kontoadministrator."
 [
-  {"method": "GET", "path": "/department", "params": {"count": 1}},
-  {"method": "GET", "path": "/token/session/>whoAmI", "params": {}},
-  {"method": "POST", "path": "/employee", "body": {"firstName": "Kari", "lastName": "Nordmann", "email": "kari@example.org", "userType": "EXTENDED", "department": {"id": "$PREV_0_ID"}}},
-  {"method": "POST", "path": "/employee/entitlement", "body": {"employee": {"id": "$PREV_2_ID"}, "entitlementId": 1, "customer": {"id": "$PREV_1_ID"}}}
+  {"method": "POST", "path": "/employee", "body": {"firstName": "Kari", "lastName": "Nordmann", "email": "kari@example.org", "userType": "EXTENDED", "department": {"id": DEPARTMENT_ID}}},
+  {"method": "POST", "path": "/employee/entitlement", "body": {"employee": {"id": "$PREV_0_ID"}, "entitlementId": 1, "customer": {"id": COMPANY_ID}}}
 ]
+NOTE: Replace DEPARTMENT_ID and COMPANY_ID with values from ENVIRONMENT. Just 2 calls instead of 4!
 
 ### Create customer
 Prompt: "Opprett en kunde Test AS med e-post test@test.no"
@@ -375,16 +374,15 @@ Prompt: "Legg til kontaktperson Per Hansen (per@firma.no) hos kunden Acme AS"
   {"method": "POST", "path": "/contact", "body": {"firstName": "Per", "lastName": "Hansen", "email": "per@firma.no", "customer": {"id": "$PREV_0_ID"}}}
 ]
 
-### Create project with project manager
+### Create project with project manager (uses ENVIRONMENT values)
 Prompt: "Opprett prosjekt Omega med ansatt Kari som prosjektleder"
 [
-  {"method": "GET", "path": "/department", "params": {"count": 1}},
-  {"method": "GET", "path": "/token/session/>whoAmI", "params": {}},
-  {"method": "POST", "path": "/employee", "body": {"firstName": "Kari", "lastName": "Nordmann", "email": "kari@example.org", "userType": "EXTENDED", "department": {"id": "$PREV_0_ID"}}},
-  {"method": "POST", "path": "/employee/entitlement", "body": {"employee": {"id": "$PREV_2_ID"}, "entitlementId": 45, "customer": {"id": "$PREV_1_ID"}}},
-  {"method": "POST", "path": "/employee/entitlement", "body": {"employee": {"id": "$PREV_2_ID"}, "entitlementId": 10, "customer": {"id": "$PREV_1_ID"}}},
-  {"method": "POST", "path": "/project", "body": {"name": "Omega", "number": "1", "startDate": "2026-03-20", "projectManager": {"id": "$PREV_2_ID"}}}
+  {"method": "POST", "path": "/employee", "body": {"firstName": "Kari", "lastName": "Nordmann", "email": "kari@example.org", "userType": "EXTENDED", "department": {"id": DEPARTMENT_ID}}},
+  {"method": "POST", "path": "/employee/entitlement", "body": {"employee": {"id": "$PREV_0_ID"}, "entitlementId": 45, "customer": {"id": COMPANY_ID}}},
+  {"method": "POST", "path": "/employee/entitlement", "body": {"employee": {"id": "$PREV_0_ID"}, "entitlementId": 10, "customer": {"id": COMPANY_ID}}},
+  {"method": "POST", "path": "/project", "body": {"name": "Omega", "number": "1", "startDate": "2026-03-20", "projectManager": {"id": "$PREV_0_ID"}}}
 ]
+NOTE: 4 calls instead of 6! DEPARTMENT_ID and COMPANY_ID from ENVIRONMENT.
 """
 
 
@@ -603,10 +601,25 @@ async def solve(request: Request):
 
     logger.info(f"Task: {prompt[:300]}...")
 
-    # Auto-setup: Ensure bank account is configured (required for invoicing)
+    # === PRE-FLIGHT: Auto-setup and environment discovery ===
+    auth = ("0", session_token)
+    env_info = {}
+
     try:
-        auth = ("0", session_token)
-        # Find account 1920 (Bankinnskudd) and set bank account number if missing
+        # 1. Get company ID and employee ID
+        whoami_resp = http_requests.get(f"{base_url}/token/session/>whoAmI", auth=auth, timeout=10)
+        if whoami_resp.status_code == 200:
+            whoami = whoami_resp.json()["value"]
+            env_info["company_id"] = whoami.get("companyId")
+            env_info["employee_id"] = whoami.get("employeeId")
+
+        # 2. Get first department ID
+        dept_resp = http_requests.get(f"{base_url}/department", auth=auth, params={"count": 1, "fields": "id,name"}, timeout=10)
+        if dept_resp.status_code == 200 and dept_resp.json().get("values"):
+            env_info["department_id"] = dept_resp.json()["values"][0]["id"]
+            env_info["department_name"] = dept_resp.json()["values"][0].get("name", "")
+
+        # 3. Ensure bank account is configured (required for invoicing)
         acc_resp = http_requests.get(
             f"{base_url}/ledger/account",
             auth=auth,
@@ -616,19 +629,46 @@ async def solve(request: Request):
         if acc_resp.status_code == 200 and acc_resp.json().get("values"):
             acc = acc_resp.json()["values"][0]
             if not acc.get("bankAccountNumber"):
-                # Set a valid Norwegian bank account number (MOD11 valid)
                 acc["bankAccountNumber"] = "15030100007"
-                put_resp = http_requests.put(
-                    f"{base_url}/ledger/account/{acc['id']}",
-                    auth=auth,
-                    json=acc,
-                    timeout=10
-                )
-                logger.info(f"Bank account setup: {put_resp.status_code}")
-    except Exception as e:
-        logger.warning(f"Bank account setup failed (non-critical): {e}")
+                http_requests.put(f"{base_url}/ledger/account/{acc['id']}", auth=auth, json=acc, timeout=10)
+                logger.info("Bank account configured")
+            env_info["bank_configured"] = True
 
-    # Build prompt for Gemini
+        # 4. Get invoice payment types
+        pt_resp = http_requests.get(f"{base_url}/invoice/paymentType", auth=auth, params={"fields": "id,description"}, timeout=10)
+        if pt_resp.status_code == 200 and pt_resp.json().get("values"):
+            for pt in pt_resp.json()["values"]:
+                if "bank" in pt.get("description", "").lower():
+                    env_info["payment_type_bank_id"] = pt["id"]
+                elif "kontant" in pt.get("description", "").lower():
+                    env_info["payment_type_cash_id"] = pt["id"]
+
+        # 5. Get travel expense payment type
+        te_pt_resp = http_requests.get(f"{base_url}/travelExpense/paymentType", auth=auth, params={"fields": "id,description", "count": 1}, timeout=10)
+        if te_pt_resp.status_code == 200 and te_pt_resp.json().get("values"):
+            env_info["travel_payment_type_id"] = te_pt_resp.json()["values"][0]["id"]
+
+        logger.info(f"Pre-flight done: {json.dumps(env_info)}")
+
+    except Exception as e:
+        logger.warning(f"Pre-flight failed (non-critical): {e}")
+
+    # === BUILD PROMPT WITH ENVIRONMENT INFO ===
+    env_block = ""
+    if env_info:
+        env_block = f"""
+
+## ENVIRONMENT (pre-fetched — use these directly, do NOT call GET for them)
+- company_id: {env_info.get('company_id', 'unknown')}
+- department_id: {env_info.get('department_id', 'unknown')} (name: "{env_info.get('department_name', '')}")
+- bank_account: {'configured' if env_info.get('bank_configured') else 'unknown'}
+- invoice_payment_type_bank_id: {env_info.get('payment_type_bank_id', 'unknown')}
+- invoice_payment_type_cash_id: {env_info.get('payment_type_cash_id', 'unknown')}
+- travel_payment_type_id: {env_info.get('travel_payment_type_id', 'unknown')}
+
+Since department_id and company_id are already known, you do NOT need to call GET /department or GET /token/session/>whoAmI. Use the values above directly. This saves API calls and improves your efficiency score.
+"""
+
     user_prompt = f"Task prompt:\n{prompt}"
     if files:
         file_info = extract_file_content(files)
@@ -643,8 +683,8 @@ async def solve(request: Request):
     try:
         response = client.models.generate_content(
             model=MODEL_NAME,
-            contents=[SYSTEM_PROMPT, user_prompt],
-            config={"temperature": 0.1, "max_output_tokens": 8192},
+            contents=[SYSTEM_PROMPT + env_block, user_prompt],
+            config={"temperature": 0.1, "max_output_tokens": 16384},
         )
         text = response.text.strip()
         logger.info(f"Gemini raw response length: {len(text)}")
