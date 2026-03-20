@@ -603,6 +603,31 @@ async def solve(request: Request):
 
     logger.info(f"Task: {prompt[:300]}...")
 
+    # Auto-setup: Ensure bank account is configured (required for invoicing)
+    try:
+        auth = ("0", session_token)
+        # Find account 1920 (Bankinnskudd) and set bank account number if missing
+        acc_resp = http_requests.get(
+            f"{base_url}/ledger/account",
+            auth=auth,
+            params={"numberFrom": "1920", "numberTo": "1920", "fields": "id,number,name,bankAccountNumber,version"},
+            timeout=10
+        )
+        if acc_resp.status_code == 200 and acc_resp.json().get("values"):
+            acc = acc_resp.json()["values"][0]
+            if not acc.get("bankAccountNumber"):
+                # Set a valid Norwegian bank account number (MOD11 valid)
+                acc["bankAccountNumber"] = "15030100007"
+                put_resp = http_requests.put(
+                    f"{base_url}/ledger/account/{acc['id']}",
+                    auth=auth,
+                    json=acc,
+                    timeout=10
+                )
+                logger.info(f"Bank account setup: {put_resp.status_code}")
+    except Exception as e:
+        logger.warning(f"Bank account setup failed (non-critical): {e}")
+
     # Build prompt for Gemini
     user_prompt = f"Task prompt:\n{prompt}"
     if files:
