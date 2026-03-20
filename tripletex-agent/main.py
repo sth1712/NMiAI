@@ -106,8 +106,21 @@ ORDER LINE (POST /order/orderline):
 INVOICE (POST /invoice):
 - REQUIRED: invoiceDate, invoiceDueDate, orders (array of {id})
 - MUST create order first (with order lines), then reference order id
-- Flow: POST /customer → POST /order → POST /order/orderline → POST /invoice
-- NOTE: The Tripletex account needs a bank account number registered for invoicing to work
+- Complete flow for creating an invoice:
+  1. POST /customer (if customer doesn't exist)
+  2. POST /product (if product doesn't exist) with priceExcludingVatCurrency and vatType
+  3. POST /order with customer.id, deliveryDate, orderDate
+  4. POST /order/orderline with order.id, product.id, count (can add multiple lines)
+  5. POST /invoice with invoiceDate, invoiceDueDate, orders: [{"id": order_id}]
+- Invoice payment types available: GET /invoice/paymentType (Kontant, Betalt til bank)
+
+CREDIT NOTE:
+- To create a credit note for an existing invoice: POST /invoice/creditNote/{invoiceId}
+- First GET /invoice to find the invoice ID
+
+PAYMENT (registering payment on invoice):
+- After invoice is created, register payment via the Tripletex payment endpoints
+- Use GET /invoice/paymentType for available payment types (id=33233579 Kontant, id=33233580 Betalt til bank)
 
 TRAVEL EXPENSE (POST /travelExpense):
 - REQUIRED: employee.id, title
@@ -255,6 +268,47 @@ Example — "Opprett en kunde Test AS med e-post test@test.no":
       "email": "test@test.no",
       "isCustomer": true
     }
+  }
+]
+
+Example — "Registrer leverandøren Bygg AS med orgnr 987654321":
+[
+  {
+    "method": "POST",
+    "path": "/supplier",
+    "body": {
+      "name": "Bygg AS",
+      "organizationNumber": "987654321"
+    }
+  }
+]
+
+Example — "Lag en faktura til kunde Acme AS for 2 timer konsulentarbeid à 1200 NOK":
+[
+  {
+    "method": "POST",
+    "path": "/customer",
+    "body": {"name": "Acme AS", "isCustomer": true}
+  },
+  {
+    "method": "POST",
+    "path": "/product",
+    "body": {"name": "Konsulentarbeid", "number": "1001", "priceExcludingVatCurrency": 1200.0, "vatType": {"id": 3}}
+  },
+  {
+    "method": "POST",
+    "path": "/order",
+    "body": {"customer": {"id": "$PREV_0_ID"}, "deliveryDate": "2026-03-20", "orderDate": "2026-03-20"}
+  },
+  {
+    "method": "POST",
+    "path": "/order/orderline",
+    "body": {"order": {"id": "$PREV_2_ID"}, "product": {"id": "$PREV_1_ID"}, "count": 2}
+  },
+  {
+    "method": "POST",
+    "path": "/invoice",
+    "body": {"invoiceDate": "2026-03-20", "invoiceDueDate": "2026-04-20", "orders": [{"id": "$PREV_2_ID"}]}
   }
 ]
 """
