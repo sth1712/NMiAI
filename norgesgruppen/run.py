@@ -6,6 +6,9 @@ Steg 2: ResNet18 (ONNX via onnxruntime) matcher crops mot referanser
 
 Ingen blokkerte imports. ONNX-basert. Regelsikker.
 """
+# === KONFIGURASJON ===
+# Sett DETECTION_ONLY = True for diagnostisk submission (category_id=0, gir 0.7 × det_mAP)
+DETECTION_ONLY = False
 import json
 from pathlib import Path
 
@@ -103,17 +106,17 @@ def main():
     )
 
     for img_path in image_paths:
-        results = yolo(str(img_path), verbose=False)
+        results = yolo(str(img_path), verbose=False, augment=True)
         # Hent tall fra filnavn: "img_00042.jpg" → 42, "00042.jpg" → 42
         image_id = int("".join(c for c in img_path.stem if c.isdigit()))
 
-        if not use_twostage:
+        if DETECTION_ONLY or not use_twostage:
             for r in results:
                 for box in r.boxes:
                     x1, y1, x2, y2 = box.xyxy[0].tolist()
                     predictions.append({
                         "image_id": image_id,
-                        "category_id": int(box.cls.item()),
+                        "category_id": 0 if DETECTION_ONLY else int(box.cls.item()),
                         "bbox": [x1, y1, x2 - x1, y2 - y1],
                         "score": float(box.conf.item()),
                     })

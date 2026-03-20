@@ -281,8 +281,7 @@ Example for supplier invoice of 18000 NOK inkl MVA (14400 + 3600 MVA):
   }
 }
 
-To find account IDs: GET /ledger/account?numberFrom=NNNN&numberTo=NNNN&fields=id,number,name
-To find voucherType ID for "Leverandørfaktura": GET /ledger/voucherType?fields=id,name
+IMPORTANT: Use account IDs and voucher_type_supplier_id from ENVIRONMENT section when available. Only call GET /ledger/account if the account is not in ENVIRONMENT.
 
 ## 13. TIMESHEET
 
@@ -441,6 +440,55 @@ Prompt: "Opprett prosjekt Omega med ansatt Kari som prosjektleder"
   {"method": "POST", "path": "/project", "body": {"name": "Omega", "number": "1", "startDate": "2026-03-20", "projectManager": {"id": "$PREV_0_ID"}}}
 ]
 NOTE: 4 calls instead of 6! DEPARTMENT_ID and COMPANY_ID from ENVIRONMENT.
+
+## Tier 2: Supplier invoice (uses ENVIRONMENT account IDs)
+### Register supplier invoice
+Prompt: "Registrer leverandørfaktura INV-001 fra Staples på 12500 NOK inkl MVA (10000 + 2500 MVA) for kontorrekvisita"
+[
+  {"method": "GET", "path": "/supplier", "params": {"name": "Staples", "fields": "id,name"}},
+  {"method": "POST", "path": "/supplierInvoice", "body": {"invoiceNumber": "INV-001", "invoiceDate": "2026-03-20", "supplier": {"id": "$PREV_0_ID"}, "invoiceDueDate": "2026-04-20", "currency": {"id": 1}, "voucher": {"date": "2026-03-20", "description": "Leverandørfaktura INV-001", "voucherType": {"id": "VOUCHER_TYPE_SUPPLIER_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_6800_ID from ENVIRONMENT"}, "amount": 10000.0, "amountCurrency": 10000.0, "amountGross": 10000.0, "amountGrossCurrency": 10000.0, "currency": {"id": 1}, "row": 1, "supplier": {"id": "$PREV_0_ID"}, "description": "Kontorrekvisita"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_2710_ID from ENVIRONMENT"}, "amount": 2500.0, "amountCurrency": 2500.0, "amountGross": 2500.0, "amountGrossCurrency": 2500.0, "currency": {"id": 1}, "row": 2, "supplier": {"id": "$PREV_0_ID"}, "description": "Inngående MVA"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_2400_ID from ENVIRONMENT"}, "amount": -12500.0, "amountCurrency": -12500.0, "amountGross": -12500.0, "amountGrossCurrency": -12500.0, "currency": {"id": 1}, "row": 3, "supplier": {"id": "$PREV_0_ID"}, "description": "Leverandørgjeld"}]}}}
+]
+NOTE: Use account IDs and voucher_type_supplier_id from ENVIRONMENT. Postings MUST have "row" field and balance to 0.
+
+## Tier 2: Timesheet
+### Register hours on timesheet
+Prompt: "Registrer 7.5 timer for ansatt Ole Hansen på prosjekt Alpha den 20. mars"
+[
+  {"method": "GET", "path": "/employee", "params": {"firstName": "Ole", "lastName": "Hansen", "fields": "id"}},
+  {"method": "GET", "path": "/project", "params": {"name": "Alpha", "fields": "id"}},
+  {"method": "POST", "path": "/timesheet/entry", "body": {"employee": {"id": "$PREV_0_ID"}, "project": {"id": "$PREV_1_ID"}, "activity": {"id": "FIRST_ACTIVITY_ID from ENVIRONMENT"}, "date": "2026-03-20", "hours": 7.5}}
+]
+NOTE: Use first activity_id from ENVIRONMENT. Only 3 calls.
+
+## Tier 2: Payroll
+### Run payroll for employee
+Prompt: "Kjør lønn for Randi Haugen. Grunnlønn 49550 kr + engangsbonus 8300 kr"
+[
+  {"method": "GET", "path": "/employee", "params": {"firstName": "Randi", "lastName": "Haugen", "fields": "id"}},
+  {"method": "GET", "path": "/employee/employment", "params": {"employeeId": "$PREV_0_ID", "fields": "id"}},
+  {"method": "POST", "path": "/salary/payslip", "body": {"employee": {"id": "$PREV_0_ID"}, "date": "2026-03-20", "year": 2026, "month": 3}},
+  {"method": "POST", "path": "/salary/transaction", "body": {"payslip": {"id": "$PREV_2_ID"}, "salaryType": {"id": "SALARY_TYPE_FASTLONN_ID from ENVIRONMENT"}, "amount": 49550}},
+  {"method": "POST", "path": "/salary/transaction", "body": {"payslip": {"id": "$PREV_2_ID"}, "salaryType": {"id": "SALARY_TYPE_BONUS_ID from ENVIRONMENT"}, "amount": 8300}}
+]
+NOTE: Use salary_type_ids from ENVIRONMENT. If 403, salary module may not be enabled — try anyway.
+
+## Tier 2: Credit note
+### Create credit note for existing invoice
+Prompt: "Lag kreditnota for faktura til Acme AS for 'Consulting' (15000 NOK ekskl MVA)"
+[
+  {"method": "GET", "path": "/invoice", "params": {"customerName": "Acme AS", "invoiceDateFrom": "2026-01-01", "invoiceDateTo": "2026-12-31", "fields": "id,amount,customer"}},
+  {"method": "PUT", "path": "/invoice/$PREV_0_ID/:createCreditNote", "params": {"creditNoteEmail": "", "comment": "Kreditnota"}}
+]
+NOTE: Credit note is created via PUT /:createCreditNote on the EXISTING invoice. Only 2 calls.
+
+## Misc: Delete entities
+### Delete customer/product/supplier
+Prompt: "Slett kunden TestFirma AS"
+[
+  {"method": "GET", "path": "/customer", "params": {"name": "TestFirma AS", "fields": "id"}},
+  {"method": "DELETE", "path": "/customer/$PREV_0_ID"}
+]
+NOTE: Works for /customer, /product, /order (not invoiced), /travelExpense. NOT for /invoice (use credit note) or /employee (403).
 """
 
 
@@ -779,7 +827,7 @@ IMPORTANT: Return ONLY a valid JSON array. No markdown, no explanation, no comme
         response = client.models.generate_content(
             model=MODEL_NAME,
             contents=fix_prompt,
-            config={"temperature": 0.1, "max_output_tokens": 4096},
+            config={"temperature": 0.1, "max_output_tokens": 8192},
         )
         text = clean_json_text(response.text.strip())
         logger.info(f"  → Fix response length: {len(text)}")
@@ -1002,6 +1050,54 @@ async def solve(request: Request):
         if te_pt_resp.status_code == 200 and te_pt_resp.json().get("values"):
             env_info["travel_payment_type_id"] = te_pt_resp.json()["values"][0]["id"]
 
+        # 6. Get voucherType IDs (for supplier invoices)
+        try:
+            vt_resp = http_requests.get(f"{base_url}/ledger/voucherType", auth=auth, params={"fields": "id,name"}, timeout=10)
+            if vt_resp.status_code == 200 and vt_resp.json().get("values"):
+                for vt in vt_resp.json()["values"]:
+                    if "leverand" in vt.get("name", "").lower():
+                        env_info["voucher_type_supplier_id"] = vt["id"]
+                    elif "kunde" in vt.get("name", "").lower() or "salg" in vt.get("name", "").lower():
+                        env_info["voucher_type_customer_id"] = vt["id"]
+        except Exception:
+            pass
+
+        # 7. Get activity IDs (for timesheet)
+        try:
+            act_resp = http_requests.get(f"{base_url}/activity", auth=auth, params={"fields": "id,name", "count": 10}, timeout=10)
+            if act_resp.status_code == 200 and act_resp.json().get("values"):
+                env_info["activity_ids"] = [
+                    {"id": a["id"], "name": a.get("name", "")}
+                    for a in act_resp.json()["values"][:5]
+                ]
+        except Exception:
+            pass
+
+        # 8. Get salary type IDs (for payroll)
+        try:
+            st_resp = http_requests.get(f"{base_url}/salary/type", auth=auth, params={"fields": "id,number,name", "count": 10}, timeout=10)
+            if st_resp.status_code == 200 and st_resp.json().get("values"):
+                env_info["salary_type_ids"] = [
+                    {"id": s["id"], "number": s.get("number"), "name": s.get("name", "")}
+                    for s in st_resp.json()["values"][:5]
+                ]
+        except Exception:
+            pass
+
+        # 9. Get common ledger account IDs (for vouchers/supplier invoices)
+        for acc_num in ["2400", "2710", "6800"]:
+            try:
+                la_resp = http_requests.get(
+                    f"{base_url}/ledger/account", auth=auth,
+                    params={"numberFrom": acc_num, "numberTo": acc_num, "fields": "id,number,name"},
+                    timeout=10
+                )
+                if la_resp.status_code == 200 and la_resp.json().get("values"):
+                    acc = la_resp.json()["values"][0]
+                    env_info[f"account_{acc_num}_id"] = acc["id"]
+            except Exception:
+                pass
+
         logger.info(f"Pre-flight done: {json.dumps(env_info)}")
 
     except Exception as e:
@@ -1019,8 +1115,15 @@ async def solve(request: Request):
 - invoice_payment_type_bank_id: {env_info.get('payment_type_bank_id', 'unknown')}
 - invoice_payment_type_cash_id: {env_info.get('payment_type_cash_id', 'unknown')}
 - travel_payment_type_id: {env_info.get('travel_payment_type_id', 'unknown')}
+- voucher_type_supplier_id: {env_info.get('voucher_type_supplier_id', 'unknown')}
+- voucher_type_customer_id: {env_info.get('voucher_type_customer_id', 'unknown')}
+- activity_ids: {json.dumps(env_info.get('activity_ids', []))}
+- salary_type_ids: {json.dumps(env_info.get('salary_type_ids', []))}
+- account_2400_id (Leverandørgjeld): {env_info.get('account_2400_id', 'unknown')}
+- account_2710_id (Inngående MVA): {env_info.get('account_2710_id', 'unknown')}
+- account_6800_id (Kontorrekvisita): {env_info.get('account_6800_id', 'unknown')}
 
-Since department_id and company_id are already known, you do NOT need to call GET /department or GET /token/session/>whoAmI. Use the values above directly. This saves API calls and improves your efficiency score.
+Since department_id, company_id, and other IDs are already known, you do NOT need to call GET for them. Use the values above directly. This saves API calls and improves your efficiency score.
 """
 
     user_prompt = f"Task prompt:\n{prompt}"
