@@ -215,7 +215,22 @@ Employee must be userType "EXTENDED". Without BOTH entitlements, project creatio
 Required: name
 Optional: departmentNumber (string, e.g. "200")
 
-## 10. OTHER ENDPOINTS
+## 10. SALARY (PAYROLL)
+
+### Run payroll flow:
+1. Create employee if not exists (POST /employee)
+2. Ensure employee has employment (GET /employee/employment?employeeId=X)
+3. Create payslip: POST /salary/payslip with employee.id, date, year, month
+4. Add salary lines: POST /salary/transaction with payslip.id, salaryType.id, amount
+
+### Salary types (GET /salary/type for full list):
+- id for "Fastlønn" (number 2000) — base salary
+- id for "Timelønn" (number 2001) — hourly pay
+- Look for bonus types or use a general salary type
+
+### Note: Salary module may require specific permissions. If POST /salary/payslip returns 403, the module may not be enabled.
+
+## 11. OTHER ENDPOINTS
 - GET /ledger/account — chart of accounts
 - GET/POST/DELETE /ledger/voucher — vouchers
 
