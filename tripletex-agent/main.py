@@ -58,29 +58,37 @@ EMPLOYEE (POST /employee):
 - REQUIRED: firstName, lastName, email, userType, department.id
 - department.id: First GET /department to find available departments, use the first one's id
 - userType options:
-  - "STANDARD" — regular user (cannot be given admin role)
-  - "EXTENDED" — extended access user (CAN be given admin role)
-  - "NO_ACCESS" — no login access
-- If the prompt says "kontoadministrator", "administrator", "admin" or similar → use userType "EXTENDED"
-- After creating an EXTENDED employee who should be admin, you MUST also call:
-  1. GET /token/session/>whoAmI to get companyId
-  2. POST /employee/entitlement with body: {"employee": {"id": NEW_EMPLOYEE_ID}, "entitlementId": 1, "customer": {"id": COMPANY_ID}}
-  This assigns the ROLE_ADMINISTRATOR entitlement.
-- If NO admin role is mentioned → use userType "STANDARD"
+  - "STANDARD" — regular user, no special roles possible
+  - "EXTENDED" — CAN be given admin/project manager roles via entitlements
+  - "NO_ACCESS" — no login, but CAN be given project manager role
+- If the prompt says "kontoadministrator", "administrator", "admin" → use userType "EXTENDED"
+- If the employee will be a project manager → use userType "EXTENDED" or "NO_ACCESS"
+- After creating employee who should be admin, ALSO call:
+  POST /employee/entitlement {"employee": {"id": EMP_ID}, "entitlementId": 1, "customer": {"id": COMPANY_ID}}
+- If NO special role → use userType "STANDARD"
+- To get COMPANY_ID: GET /token/session/>whoAmI → response.value.companyId
 
 CUSTOMER (POST /customer):
 - REQUIRED: name, isCustomer (set to true)
 - Optional: email, organizationNumber, phoneNumber
+- If ALSO supplier: set isSupplier: true in same call
+- NOTE: /supplier is a separate endpoint for supplier-only entities
+
+SUPPLIER (POST /supplier):
+- REQUIRED: name
+- Optional: email, organizationNumber
+- Alternative: Use POST /customer with isSupplier: true, isCustomer: false
 
 PRODUCT (POST /product):
 - REQUIRED: name
 - Optional: number, priceExcludingVatCurrency, priceIncludingVatCurrency, costExcludingVatCurrency
-- NOTE: Field names end with "Currency" — NOT "priceExcludingVat" but "priceExcludingVatCurrency"
+- CRITICAL: Field names end with "Currency" — use "priceExcludingVatCurrency" NOT "priceExcludingVat"
 - For VAT/MVA: use vatType with id. Standard 25% MVA = {"vatType": {"id": 3}}
 - vatType IDs: 3 = 25% standard, 5 = 15% food, 31 = 12% transport, 6 = 0% exempt
 
 ORDER (POST /order):
 - REQUIRED: customer.id, deliveryDate, orderDate
+- Dates format: "YYYY-MM-DD"
 - Get customer.id from a previous POST /customer or GET /customer
 
 INVOICE (POST /invoice):
@@ -89,20 +97,32 @@ INVOICE (POST /invoice):
 - Flow: POST /customer → POST /order (with customer.id) → POST /invoice (with order.id)
 
 TRAVEL EXPENSE (POST /travelExpense):
-- REQUIRED: employee.id, title, startDate, endDate
+- REQUIRED: employee.id, title
+- Date field is called "date" (NOT startDate/endDate/departureDate)
+- Optional: date (YYYY-MM-DD format), project.id, department.id
 
 PROJECT (POST /project):
-- REQUIRED: name, number, projectManager.id (employee id)
-- Optional: customer.id
-- IMPORTANT: The employee used as projectManager MUST have project manager entitlement first!
-  Before creating a project, give the employee project manager access:
-  1. GET /token/session/>whoAmI to get companyId
-  2. POST /employee/entitlement with body: {"employee": {"id": EMPLOYEE_ID}, "entitlementId": 10, "customer": {"id": COMPANY_ID}}
-  This assigns AUTH_PROJECT_MANAGER. Without this, the project creation will fail with "prosjektleder har ikke fått tilgang".
+- REQUIRED: name, number, startDate, projectManager.id
+- startDate is REQUIRED (YYYY-MM-DD format)
+- Optional: customer.id, endDate, description
+- IMPORTANT: The projectManager employee MUST have TWO entitlements in ORDER:
+  Use userType "EXTENDED" for the employee, then:
+  Step 1: POST /employee/entitlement {"employee": {"id": EMP_ID}, "entitlementId": 45, "customer": {"id": COMPANY_ID}}
+  Step 2: POST /employee/entitlement {"employee": {"id": EMP_ID}, "entitlementId": 10, "customer": {"id": COMPANY_ID}}
+  entitlement 45 (AUTH_CREATE_PROJECT) MUST come before 10 (AUTH_PROJECT_MANAGER). Without both, project creation fails.
 
 DEPARTMENT (POST /department):
 - REQUIRED: name
 - Optional: departmentNumber
+
+ENTITLEMENTS (POST /employee/entitlement):
+- Used to assign roles/permissions to employees
+- REQUIRED: employee.id, entitlementId, customer.id (= companyId from whoAmI)
+- Key entitlementIds:
+  - 1 = ROLE_ADMINISTRATOR (requires userType EXTENDED)
+  - 10 = AUTH_PROJECT_MANAGER (requires userType EXTENDED or NO_ACCESS)
+  - 14 = AUTH_INVOICING
+  - 15 = AUTH_CUSTOMER_ADMIN
 
 GENERAL RULES:
 - Analyze the prompt carefully. Extract entity names, values, and relationships.
