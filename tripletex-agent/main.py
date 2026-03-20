@@ -73,14 +73,16 @@ EMPLOYEE (POST /employee):
 CUSTOMER (POST /customer):
 - REQUIRED: name, isCustomer (set to true)
 - Optional: email, organizationNumber, phoneNumber, phoneNumberMobile
-- If ALSO supplier: set isSupplier: true in same call
 - For address: postalAddress: {"addressLine1": "...", "postalCode": "...", "city": "..."}
-- NOTE: /supplier is a separate endpoint for supplier-only entities
+- ONLY use this for CUSTOMERS. If the prompt says "leverandør"/"supplier" WITHOUT "kunde"/"customer", use /supplier instead!
+- If BOTH customer AND supplier: set isCustomer: true, isSupplier: true
 
 SUPPLIER (POST /supplier):
+- Use this when the prompt says "leverandør" or "supplier" and does NOT say "kunde" or "customer"
 - REQUIRED: name
 - Optional: email, organizationNumber, phoneNumber
-- Alternative: Use POST /customer with isSupplier: true, isCustomer: false
+- This creates a PURE supplier (isCustomer=false, isSupplier=true)
+- IMPORTANT: Do NOT use /customer for pure suppliers — /customer forces isCustomer=true which is WRONG for supplier-only tasks
 
 PRODUCT (POST /product):
 - REQUIRED: name
