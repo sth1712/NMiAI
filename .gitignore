@@ -2,4 +2,9 @@ __pycache__/
 .DS_Store
 *.zip
 NM_NGD_*
+train/
+product_images/
+*.pt
+*.pth
 *.onnx
+*.safetensors

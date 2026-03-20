@@ -257,9 +257,21 @@ Standard Norwegian chart of accounts (kontoplan) is pre-loaded.
 ### GET /ledger/posting
 Query postings: ?dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD&fields=*
 
-## 12. OTHER ENDPOINTS
+## 12. SUPPLIER INVOICE (leverandørfaktura)
+
+### POST /supplierInvoice
+For registering invoices FROM suppliers (incoming invoices).
+Required: invoiceNumber, invoiceDate, supplier.id, invoiceDueDate
+GET /supplierInvoice REQUIRES: invoiceDateFrom, invoiceDateTo params
+
+### purchaseOrder
+GET /purchaseOrder — purchase orders from suppliers
+
+## 13. OTHER ENDPOINTS
 - GET /ledger/account — chart of accounts (501 accounts, standard Norwegian)
+- GET /ledger/account?numberFrom=X&numberTo=X — search by account number
 - GET/POST/DELETE /ledger/voucher — vouchers/journal entries
+- NOTE: POST /ledger/voucher with voucherType "Leverandørfaktura" has system-generated postings that CANNOT be overridden. Use /supplierInvoice instead.
 
 ---
 
