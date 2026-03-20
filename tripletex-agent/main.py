@@ -89,6 +89,7 @@ PRODUCT (POST /product):
 - For VAT/MVA: use vatType with id. Standard 25% MVA = {"vatType": {"id": 3}}
 - vatType IDs: 3 = 25% standard, 5 = 15% food, 31 = 12% transport, 6 = 0% exempt
 - Currency IDs: 1=NOK, 2=SEK, 3=DKK, 4=USD, 5=EUR
+- Product unit IDs (optional): 3628050=Liter, 3628051=Meter, 3628052=Kilometer, 3628053=Gram, 3628054=Kilogram, 3628055=Stykk
 
 ORDER (POST /order):
 - REQUIRED: customer.id, deliveryDate, orderDate
@@ -111,6 +112,18 @@ TRAVEL EXPENSE (POST /travelExpense):
 - Date field is called "date" (NOT startDate, NOT endDate, NOT departureDate)
 - Optional: date (YYYY-MM-DD format), project.id, department.id
 - DELETE: DELETE /travelExpense/{id} — returns 204 on success
+
+TRAVEL EXPENSE COST (POST /travelExpense/cost):
+- For adding costs/expenses to a travel expense report
+- REQUIRED: travelExpense.id, costCategory.id, paymentType.id, date, amountCurrencyIncVat, currency.id
+- paymentType is an OBJECT with id — NOT a string! First GET /travelExpense/paymentType to find available types.
+- costCategory: GET /travelExpense/costCategory for categories (Bredbånd, Kontorrekvisita, Telefon, Bomavgift, Buss, etc.)
+- currency: {"id": 1} for NOK
+
+CONTACT (POST /contact):
+- For adding contact persons to customers
+- REQUIRED: firstName, lastName, customer.id
+- Optional: email, phoneNumber
 
 PROJECT (POST /project):
 - REQUIRED: name, number, startDate, projectManager.id
