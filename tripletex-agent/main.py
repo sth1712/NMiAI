@@ -47,6 +47,7 @@ Each element in the array:
 
 ## ID References
 - "$PREV_N_ID" = id from the Nth call's response (0-based). For GET with multiple results, returns the first result's id.
+- "$PREV_N_FIELD_fieldname" = get any field value from the Nth call's response (e.g. "$PREV_0_FIELD_amount" gets the amount field).
 - "$MERGE_PREV_N" = merge all fields from the Nth call's GET response into a PUT body (preserves version, id, all fields).
 
 ## Scoring — CRITICAL
@@ -319,7 +320,16 @@ Prompt: "Lag en faktura til kunde Acme AS for 2 timer konsulentarbeid à 1200 NO
   {"method": "PUT", "path": "/order/$PREV_2_ID/:invoice", "params": {"invoiceDate": "2026-03-20", "sendToCustomer": "false"}}
 ]
 
-### Create invoice and register payment
+### Register payment on EXISTING invoice (Tier 2 — common!)
+Prompt: "Customer X has outstanding invoice. Register full payment."
+IMPORTANT: The invoice ALREADY EXISTS. Do NOT create customer/product/order. Just find and pay it.
+[
+  {"method": "GET", "path": "/invoice", "params": {"fields": "id,amount,amountOutstanding"}},
+  {"method": "PUT", "path": "/invoice/$PREV_0_ID/:payment", "params": {"paymentDate": "2026-03-20", "paymentTypeId": "33233580", "paidAmount": "$PREV_0_FIELD_amount"}}
+]
+$PREV_0_FIELD_amount gets the "amount" field from the first call's response. Use this for dynamic values.
+
+### Create NEW invoice and register payment
 Prompt: "Fakturér kunde Test AS for produkt X og registrer betaling"
 [
   {"method": "POST", "path": "/customer", "body": {"name": "Test AS", "isCustomer": true}},
@@ -379,8 +389,27 @@ Prompt: "Opprett prosjekt Omega med ansatt Kari som prosjektleder"
 
 
 def resolve_placeholders(value, results):
-    """Replace $PREV_N_ID placeholders with actual IDs from previous results."""
+    """Replace $PREV_N_ID and $PREV_N_FIELD_name placeholders with actual values from previous results."""
     if isinstance(value, str):
+        # First check for $PREV_N_FIELD_fieldname pattern (e.g. $PREV_0_FIELD_amount)
+        field_pattern = r'\$PREV_(\d+)_FIELD_(\w+)'
+        field_match = re.search(field_pattern, value)
+        if field_match:
+            idx = int(field_match.group(1))
+            field_name = field_match.group(2)
+            if idx < len(results) and results[idx]:
+                obj = None
+                if "value" in results[idx]:
+                    obj = results[idx]["value"]
+                elif "values" in results[idx] and results[idx]["values"]:
+                    obj = results[idx]["values"][0]
+                if obj and field_name in obj:
+                    field_val = obj[field_name]
+                    if value == field_match.group(0):
+                        return field_val
+                    return value.replace(field_match.group(0), str(field_val))
+
+        # Then check for $PREV_N_ID pattern
         pattern = r'\$PREV_(\d+)_ID'
         match = re.search(pattern, value)
         if match:
@@ -590,7 +619,7 @@ async def solve(request: Request):
         response = client.models.generate_content(
             model=MODEL_NAME,
             contents=[SYSTEM_PROMPT, user_prompt],
-            config={"temperature": 0.1, "max_output_tokens": 4096},
+            config={"temperature": 0.1, "max_output_tokens": 8192},
         )
         text = response.text.strip()
         logger.info(f"Gemini raw response length: {len(text)}")
