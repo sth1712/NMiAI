@@ -237,9 +237,28 @@ Optional: departmentNumber (string, e.g. "200")
 
 ### Note: Salary module may require specific permissions. If POST /salary/payslip returns 403, the module may not be enabled.
 
-## 11. OTHER ENDPOINTS
-- GET /ledger/account — chart of accounts
-- GET/POST/DELETE /ledger/voucher — vouchers
+## 11. VOUCHER / BILAG (ledger/voucher)
+
+### POST /ledger/voucher
+For creating manual journal entries (bilag).
+Required: date, description, voucherType.id, postings (array)
+
+Each posting requires: date, account.id, amount, amountCurrency, currency.id
+Postings MUST balance (sum of amounts = 0).
+
+Voucher types (GET /ledger/voucherType):
+- Utgående faktura, Leverandørfaktura, Betaling, Lønnsbilag, etc.
+
+### GET /ledger/account
+Search accounts by number: ?numberFrom=1920&numberTo=1920&fields=id,number,name
+Standard Norwegian chart of accounts (kontoplan) is pre-loaded.
+
+### GET /ledger/posting
+Query postings: ?dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD&fields=*
+
+## 12. OTHER ENDPOINTS
+- GET /ledger/account — chart of accounts (501 accounts, standard Norwegian)
+- GET/POST/DELETE /ledger/voucher — vouchers/journal entries
 
 ---
 
