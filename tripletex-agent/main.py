@@ -412,12 +412,14 @@ async def solve(request: Request):
     base_url = creds["base_url"]
     session_token = creds["session_token"]
 
-    logger.info(f"Task: {prompt[:200]}...")
+    logger.info(f"Task: {prompt[:300]}...")
 
     # Build prompt for Gemini
     user_prompt = f"Task prompt:\n{prompt}"
     if files:
-        user_prompt += f"\n\nAttached files:\n{extract_file_content(files)}"
+        file_info = extract_file_content(files)
+        user_prompt += f"\n\nAttached files:\n{file_info}"
+        logger.info(f"Files attached: {len(files)}")
 
     # Ask Gemini to plan API calls
     if not client:
@@ -431,19 +433,38 @@ async def solve(request: Request):
             config={"temperature": 0.1, "max_output_tokens": 4096},
         )
         text = response.text.strip()
+        logger.info(f"Gemini raw response length: {len(text)}")
 
+        # Extract JSON from response (handle markdown code blocks)
         if "```" in text:
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-            text = text.strip()
+            parts = text.split("```")
+            for part in parts[1:]:
+                candidate = part.strip()
+                if candidate.startswith("json"):
+                    candidate = candidate[4:].strip()
+                if candidate.startswith("["):
+                    text = candidate
+                    break
+
+        # Try to find JSON array if response has extra text
+        if not text.startswith("["):
+            start = text.find("[")
+            end = text.rfind("]")
+            if start >= 0 and end > start:
+                text = text[start:end+1]
 
         calls = json.loads(text)
         if not isinstance(calls, list):
             calls = [calls]
 
-        logger.info(f"Planned {len(calls)} API calls")
+        logger.info(f"Planned {len(calls)} API calls:")
+        for i, c in enumerate(calls):
+            logger.info(f"  Plan {i}: {c.get('method', '?')} {c.get('path', '?')}")
 
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON parse error: {e}")
+        logger.error(f"Gemini text was: {text[:500]}")
+        return JSONResponse({"status": "completed"})
     except Exception as e:
         logger.error(f"Gemini error: {e}")
         return JSONResponse({"status": "completed"})
@@ -451,7 +472,10 @@ async def solve(request: Request):
     # Execute
     try:
         results = execute_api_calls(calls, base_url, session_token)
-        logger.info(f"Done — {len(results)} calls executed")
+        # Log summary
+        successes = sum(1 for r in results if r and not (isinstance(r, dict) and "error" in r))
+        failures = len(results) - successes
+        logger.info(f"Done — {len(results)} calls: {successes} success, {failures} failed")
     except Exception as e:
         logger.error(f"Execution error: {e}")
 
