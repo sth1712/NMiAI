@@ -244,34 +244,58 @@ Optional: departmentNumber (string, e.g. "200")
 For creating manual journal entries (bilag).
 Required: date, description, voucherType.id, postings (array)
 
-Each posting requires: date, account.id, amount, amountCurrency, currency.id
-Postings MUST balance (sum of amounts = 0).
+CRITICAL: Each posting MUST have the "row" field (integer, starting at 1)! Without "row", ALL voucherTypes fail with "systemgenererte" error.
 
-Voucher types (GET /ledger/voucherType):
-- Utgående faktura, Leverandørfaktura, Betaling, Lønnsbilag, etc.
+Each posting requires: date, account.id, amount, amountCurrency, amountGross, amountGrossCurrency, currency.id, row, description
+Postings MUST balance (sum of amounts = 0). Positive = debit, negative = credit.
+
+Common accounts: 1920=Bankinnskudd, 2400=Leverandørgjeld, 2700=Utg MVA høy, 2710=Inng MVA høy, 3000=Salgsinntekt, 6800=Kontorrekvisita, 6900=Telefon, 7100=Kontortjenester
 
 ### GET /ledger/account
-Search accounts by number: ?numberFrom=1920&numberTo=1920&fields=id,number,name
-Standard Norwegian chart of accounts (kontoplan) is pre-loaded.
+Search by number: ?numberFrom=7100&numberTo=7100&fields=id,number,name
 
-### GET /ledger/posting
-Query postings: ?dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD&fields=*
-
-## 12. SUPPLIER INVOICE (leverandørfaktura)
+## 12. SUPPLIER INVOICE (leverandørfaktura) — CRITICAL FOR TIER 2
 
 ### POST /supplierInvoice
-For registering invoices FROM suppliers (incoming invoices).
-Required: invoiceNumber, invoiceDate, supplier.id, invoiceDueDate
-GET /supplierInvoice REQUIRES: invoiceDateFrom, invoiceDateTo params
+For registering invoices FROM suppliers. This is what "registrer leverandørfaktura" means!
+Required: invoiceNumber, invoiceDate, supplier.id, invoiceDueDate, currency.id, voucher (with postings)
 
-### purchaseOrder
-GET /purchaseOrder — purchase orders from suppliers
+The voucher object MUST contain postings with row field and supplier.id on EACH posting.
 
-## 13. OTHER ENDPOINTS
-- GET /ledger/account — chart of accounts (501 accounts, standard Norwegian)
-- GET /ledger/account?numberFrom=X&numberTo=X — search by account number
-- GET/POST/DELETE /ledger/voucher — vouchers/journal entries
-- NOTE: POST /ledger/voucher with voucherType "Leverandørfaktura" has system-generated postings that CANNOT be overridden. Use /supplierInvoice instead.
+Example for supplier invoice of 18000 NOK inkl MVA (14400 + 3600 MVA):
+{
+  "invoiceNumber": "INV-2026-001",
+  "invoiceDate": "2026-03-20",
+  "supplier": {"id": SUPPLIER_ID},
+  "invoiceDueDate": "2026-04-20",
+  "currency": {"id": 1},
+  "voucher": {
+    "date": "2026-03-20",
+    "description": "Leverandørfaktura INV-2026-001",
+    "voucherType": {"id": VOUCHER_TYPE_LEVERANDOR_ID},
+    "postings": [
+      {"date": "2026-03-20", "account": {"id": EXPENSE_ACCOUNT_ID}, "amount": 14400.0, "amountCurrency": 14400.0, "amountGross": 14400.0, "amountGrossCurrency": 14400.0, "currency": {"id": 1}, "row": 1, "supplier": {"id": SUPPLIER_ID}, "description": "Kostnad"},
+      {"date": "2026-03-20", "account": {"id": MVA_INN_ACCOUNT_ID}, "amount": 3600.0, "amountCurrency": 3600.0, "amountGross": 3600.0, "amountGrossCurrency": 3600.0, "currency": {"id": 1}, "row": 2, "supplier": {"id": SUPPLIER_ID}, "description": "Inngående MVA"},
+      {"date": "2026-03-20", "account": {"id": LEVERANDORGJELD_ACCOUNT_ID}, "amount": -18000.0, "amountCurrency": -18000.0, "amountGross": -18000.0, "amountGrossCurrency": -18000.0, "currency": {"id": 1}, "row": 3, "supplier": {"id": SUPPLIER_ID}, "description": "Leverandørgjeld"}
+    ]
+  }
+}
+
+To find account IDs: GET /ledger/account?numberFrom=NNNN&numberTo=NNNN&fields=id,number,name
+To find voucherType ID for "Leverandørfaktura": GET /ledger/voucherType?fields=id,name
+
+## 13. TIMESHEET
+
+### POST /timesheet/entry
+For registering hours worked.
+Required: employee.id, activity.id, date, hours
+Optional: project.id (for project-specific hours), comment
+
+## 14. OTHER ENDPOINTS
+- GET /ledger/account — 500+ accounts, standard Norwegian chart
+- GET /ledger/posting?dateFrom=X&dateTo=Y — query postings
+- GET /inventory — warehouse/stock info
+- GET /purchaseOrder — purchase orders
 
 ---
 
