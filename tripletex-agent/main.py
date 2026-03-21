@@ -434,7 +434,35 @@ After creating asset, register depreciation via POST /ledger/voucher (6010/1200)
 ### GET /saft/exportSAFT — export SAF-T file
 ### POST /saft/importSAFT — import SAF-T file
 
-## 19. OTHER ENDPOINTS
+## 19. PURCHASE ORDER (innkjøpsordre)
+
+### POST /purchaseOrder
+Required: deliveryDate, supplier.id, ourContact.id (use employee_id from ENVIRONMENT)
+Optional: orderDate, receiverEmail
+After creating: add order lines with POST /purchaseOrder/orderline
+
+### POST /purchaseOrder/orderline
+Required: purchaseOrder.id, product.id (or description), count, unitPrice
+For receiving goods: POST /purchaseOrder/goodsReceipt, then POST /purchaseOrder/goodsReceiptLine
+
+## 20. EMPLOYEE ADDITIONAL
+
+### POST /employee/nextOfKin
+For "pårørende" / "next of kin" / "emergency contact":
+Required: name, phoneNumber
+Optional: employee.id
+
+### POST /employee/hourlyCostAndRate
+For setting hourly cost and rate for an employee.
+
+## 21. MULTI-CURRENCY
+
+When a task involves foreign currency:
+- GET /currency to find currency ID (NOK=1, SEK=2, DKK=3, USD=4, EUR=5, GBP=6)
+- Use currency.id in product, invoice, or voucher postings
+- GET /currency/{fromCurrencyID}/exchangeRate for exchange rates
+
+## 22. OTHER ENDPOINTS
 - GET /ledger/account — 500+ accounts, standard Norwegian chart
 - GET /ledger/posting?dateFrom=X&dateTo=Y — query postings
 - GET /ledger/posting/openPost — open postings (utestående poster)
