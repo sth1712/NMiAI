@@ -265,7 +265,12 @@ CRITICAL: Each posting MUST have the "row" field (integer, starting at 1)! Witho
 Each posting requires: date, account.id, amount, amountCurrency, amountGross, amountGrossCurrency, currency.id, row, description
 Postings MUST balance (sum of amounts = 0). Positive = debit, negative = credit.
 
-NOTE: The only supported accounting dimensions are "Department" and "Project".
+NOTE on "fri regnskapsdimensjon" / "free accounting dimension" tasks:
+The API does NOT have a /dimension endpoint. When a task asks to create a "fri regnskapsdimensjon" with values:
+1. Create a PROJECT for each dimension value (POST /project with name=value, number=value)
+2. Then create the voucher posting with project.id on the posting to link it
+This maps the concept of "dimension values" to projects, which IS supported on postings.
+Even if this is not perfect, ALWAYS create the voucher/bilag part of the task — partial credit is better than 0.
 
 Common accounts: 1920=Bankinnskudd, 2400=Leverandørgjeld, 2700=Utg MVA høy, 2710=Inng MVA høy, 3000=Salgsinntekt, 6800=Kontorrekvisita, 6900=Telefon, 7100=Kontortjenester
 
