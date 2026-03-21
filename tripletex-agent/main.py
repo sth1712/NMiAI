@@ -711,6 +711,69 @@ Prompt: "Kunden har en forfalt faktura. Registrer purregebyr 55 NOK. Debet kunde
 ]
 NOTE: CRITICAL: customer.id MUST be on EVERY posting for Purring voucherType! /:createReminder needs "type" param (e.g. "remindersReminder"). Use account 3400 from ENVIRONMENT.
 
+## Tier 2: Partial payment (delbetaling)
+Prompt: "Kunden har betalt 10000 kr av en faktura på 25000 kr. Registrer delbetalingen."
+[
+  {"method": "GET", "path": "/invoice", "params": {"invoiceDateFrom": "2020-01-01", "invoiceDateTo": "2030-12-31", "fields": "id,amount,amountOutstanding"}},
+  {"method": "PUT", "path": "/invoice/$PREV_0_ID/:payment", "params": {"paymentDate": "2026-03-20", "paymentTypeId": "PAYMENT_TYPE_BANK_ID", "paidAmount": "10000.0"}}
+]
+NOTE: paidAmount can be LESS than full amount for partial payments. Multiple partial payments are allowed.
+
+## Tier 2: Payment reversal (betalingsreversering)
+Prompt: "Betalingen ble returnert av banken. Reverser betalingen."
+Use PUT /invoice/{id}/:payment with NEGATIVE paidAmount to reverse a payment:
+[
+  {"method": "GET", "path": "/invoice", "params": {"invoiceDateFrom": "2020-01-01", "invoiceDateTo": "2030-12-31", "fields": "id,amount,amountOutstanding"}},
+  {"method": "PUT", "path": "/invoice/$PREV_0_ID/:payment", "params": {"paymentDate": "2026-03-20", "paymentTypeId": "PAYMENT_TYPE_BANK_ID", "paidAmount": "-$PREV_0_FIELD_amount"}}
+]
+NOTE: Use NEGATIVE amount to reverse. This restores the outstanding amount on the invoice.
+
+## Tier 2: Supplier payment (leverandørbetaling)
+Prompt: "Betal leverandørfaktura til Staples på 12500 kr fra bankkonto"
+[
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Betaling leverandørfaktura Staples", "voucherType": {"id": "VOUCHER_TYPE_PAYMENT_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_2400_ID from ENVIRONMENT"}, "amount": 12500.0, "amountCurrency": 12500.0, "amountGross": 12500.0, "amountGrossCurrency": 12500.0, "currency": {"id": 1}, "row": 1, "description": "Betaling leverandørgjeld"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_1920_ID from ENVIRONMENT"}, "amount": -12500.0, "amountCurrency": -12500.0, "amountGross": -12500.0, "amountGrossCurrency": -12500.0, "currency": {"id": 1}, "row": 2, "description": "Fra bankkonto"}]}}
+]
+
+## Tier 2: Employee expense (ansattutlegg)
+Prompt: "Ansatt Erik har lagt ut 3500 kr for kontorrekvisita. Registrer utlegget."
+[
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Ansattutlegg kontorrekvisita", "voucherType": {"id": "VOUCHER_TYPE_MANUAL_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_6800_ID from ENVIRONMENT"}, "amount": 3500.0, "amountCurrency": 3500.0, "amountGross": 3500.0, "amountGrossCurrency": 3500.0, "currency": {"id": 1}, "row": 1, "description": "Kontorrekvisita"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_2910_ID from ENVIRONMENT"}, "amount": -3500.0, "amountCurrency": -3500.0, "amountGross": -3500.0, "amountGrossCurrency": -3500.0, "currency": {"id": 1}, "row": 2, "description": "Gjeld til ansatt"}]}}
+]
+
+## Tier 2: Update product
+Prompt: "Oppdater produktet Konsulenttjeneste med ny pris 1850 NOK ekskl. MVA"
+[
+  {"method": "GET", "path": "/product", "params": {"name": "Konsulenttjeneste", "fields": "*"}},
+  {"method": "PUT", "path": "/product/$PREV_0_ID", "body": {"_merge": "$MERGE_PREV_0", "priceExcludingVatCurrency": 1850.0}}
+]
+
+## Tier 2: Create departments (batch)
+Prompt: "Opprett avdelingene Økonomi (nr 100), Salg (nr 200) og IT (nr 300)"
+[
+  {"method": "POST", "path": "/department/list", "body": [{"name": "Økonomi", "departmentNumber": "100"}, {"name": "Salg", "departmentNumber": "200"}, {"name": "IT", "departmentNumber": "300"}]}
+]
+NOTE: Use /department/list for batch creation — 1 write call instead of 3!
+
+## Tier 2: Private individual customer
+Prompt: "Opprett privatkunden Ole Brumm med e-post ole@privat.no"
+[
+  {"method": "POST", "path": "/customer", "body": {"name": "Ole Brumm", "email": "ole@privat.no", "isCustomer": true, "isPrivateIndividual": true}}
+]
+
+## Tier 3: VAT return (MVA-oppgjør)
+Prompt: "Registrer MVA-oppgjør for Q1 2026. Utgående MVA 85000 kr, inngående MVA 32000 kr."
+[
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-31", "description": "MVA-oppgjør Q1 2026", "voucherType": {"id": "VOUCHER_TYPE_MANUAL_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-31", "account": {"id": "ACCOUNT_2700_ID from ENVIRONMENT"}, "amount": 85000.0, "amountCurrency": 85000.0, "amountGross": 85000.0, "amountGrossCurrency": 85000.0, "currency": {"id": 1}, "row": 1, "description": "Utgående MVA"}, {"date": "2026-03-31", "account": {"id": "ACCOUNT_2710_ID from ENVIRONMENT"}, "amount": -32000.0, "amountCurrency": -32000.0, "amountGross": -32000.0, "amountGrossCurrency": -32000.0, "currency": {"id": 1}, "row": 2, "description": "Inngående MVA"}, {"date": "2026-03-31", "account": {"id": "ACCOUNT_1920_ID from ENVIRONMENT"}, "amount": -53000.0, "amountCurrency": -53000.0, "amountGross": -53000.0, "amountGrossCurrency": -53000.0, "currency": {"id": 1}, "row": 3, "description": "MVA-betaling til skatteetaten"}]}}
+]
+NOTE: Utgående MVA (debet 2700) - Inngående MVA (kredit 2710) = nettobetaling fra bank (kredit 1920). Beløpene MÅ balansere.
+
+## Tier 3: Register fixed asset (anleggsmiddel)
+Prompt: "Registrer en maskin til 250000 kr anskaffet 01.01.2026 med levetid 60 måneder"
+[
+  {"method": "POST", "path": "/asset", "body": {"name": "Maskin", "acquisitionCost": 250000.0, "acquisitionDate": "2026-01-01", "lifetimeInMonths": 60}}
+]
+NOTE: After creating the asset, depreciation is registered via POST /ledger/voucher (debit 6010, credit 1200).
+
 ## Misc: Delete entities
 ### Delete customer/product/supplier
 Prompt: "Slett kunden TestFirma AS"
