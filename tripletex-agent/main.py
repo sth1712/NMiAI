@@ -128,6 +128,12 @@ Do NOT use /customer for pure suppliers.
 
 ## 4. PRODUCT
 
+### GET /product — SEARCH FIRST!
+CRITICAL: If the prompt gives a product NUMBER (e.g. "produkt 7390", "product number 6965"), the product likely ALREADY EXISTS in the sandbox.
+ALWAYS search first: GET /product?number=X&fields=id,name,priceExcludingVatCurrency
+Only create with POST if GET returns empty results.
+Same applies to customers and suppliers with organization numbers — search by organizationNumber first!
+
 ### POST /product
 Required: name
 Optional: number, description, priceExcludingVatCurrency, priceIncludingVatCurrency, costExcludingVatCurrency
@@ -451,7 +457,23 @@ Prompt: "Opprett Firma AS som både kunde og leverandør"
 
 ## Tier 2: Multi-step & modification tasks
 
-### Create invoice
+### Create invoice with EXISTING customer and products (COMMON in competition!)
+Prompt: "Lag faktura til kunde Montanha Lda (org.nr 860954737) med produkter Utvikling (7390) à 39600 NOK og Vedlikehold (6965) à 14550 NOK. Fakturer og registrer betaling."
+IMPORTANT: When product NUMBERS are given, products ALREADY EXIST. Search by number, don't create!
+Same for customers with organization numbers — search first!
+[
+  {"method": "GET", "path": "/customer", "params": {"organizationNumber": "860954737", "fields": "id,name"}},
+  {"method": "GET", "path": "/product", "params": {"number": "7390", "fields": "id,name,priceExcludingVatCurrency"}},
+  {"method": "GET", "path": "/product", "params": {"number": "6965", "fields": "id,name,priceExcludingVatCurrency"}},
+  {"method": "POST", "path": "/order", "body": {"customer": {"id": "$PREV_0_ID"}, "deliveryDate": "2026-03-20", "orderDate": "2026-03-20"}},
+  {"method": "POST", "path": "/order/orderline", "body": {"order": {"id": "$PREV_3_ID"}, "product": {"id": "$PREV_1_ID"}, "count": 1, "unitPriceExcludingVatCurrency": 39600.0, "vatType": {"id": 3}}},
+  {"method": "POST", "path": "/order/orderline", "body": {"order": {"id": "$PREV_3_ID"}, "product": {"id": "$PREV_2_ID"}, "count": 1, "unitPriceExcludingVatCurrency": 14550.0, "vatType": {"id": 3}}},
+  {"method": "PUT", "path": "/order/$PREV_3_ID/:invoice", "params": {"invoiceDate": "2026-03-20", "sendToCustomer": "false"}},
+  {"method": "PUT", "path": "/invoice/$PREV_6_ID/:payment", "params": {"paymentDate": "2026-03-20", "paymentTypeId": "PAYMENT_TYPE_BANK_ID", "paidAmount": "54150.0"}}
+]
+NOTE: All entities found by GET, not created. Products searched by number. Customer by organizationNumber. Only 8 calls.
+
+### Create invoice (when entities DON'T exist — create them)
 Prompt: "Lag en faktura til kunde Acme AS for 2 timer konsulentarbeid à 1200 NOK"
 [
   {"method": "POST", "path": "/customer", "body": {"name": "Acme AS", "isCustomer": true}},
