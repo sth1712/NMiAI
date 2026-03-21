@@ -1493,8 +1493,10 @@ async def solve(request: Request):
                     modules_to_enable["moduleProductAccounting"] = True
                 if modules_to_enable:
                     update_body = {"id": env_info.get("company_id"), "modules": modules_to_enable}
-                    http_requests.put(f"{base_url}/company", auth=auth, json=update_body, timeout=10)
-                    logger.info(f"Enabled modules: {list(modules_to_enable.keys())}")
+                    mod_resp = http_requests.put(f"{base_url}/company", auth=auth, json=update_body, timeout=10)
+                    logger.info(f"Enable modules {list(modules_to_enable.keys())}: {mod_resp.status_code}")
+                    if mod_resp.status_code >= 400:
+                        logger.warning(f"Module enable FAILED: {mod_resp.text[:300]}")
         except Exception:
             pass
 
@@ -1509,8 +1511,12 @@ async def solve(request: Request):
             acc = acc_resp.json()["values"][0]
             if not acc.get("bankAccountNumber"):
                 acc["bankAccountNumber"] = "15030100007"
-                http_requests.put(f"{base_url}/ledger/account/{acc['id']}", auth=auth, json=acc, timeout=10)
-                logger.info("Bank account configured")
+                bank_resp = http_requests.put(f"{base_url}/ledger/account/{acc['id']}", auth=auth, json=acc, timeout=10)
+                logger.info(f"Bank account configured: {bank_resp.status_code}")
+                if bank_resp.status_code >= 400:
+                    logger.warning(f"Bank account setup FAILED: {bank_resp.text[:500]}")
+            else:
+                logger.info(f"Bank account already has number: {acc.get('bankAccountNumber')}")
             env_info["bank_configured"] = True
 
         # 4. Get invoice payment types
