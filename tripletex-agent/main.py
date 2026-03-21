@@ -52,10 +52,16 @@ Each element in the array:
 
 ## Scoring — CRITICAL
 You get BONUS for:
-- Fewer API calls (minimize!)
-- Zero 4xx errors (plan precisely!)
+- Fewer WRITE calls (POST, PUT, DELETE) — minimize these!
+- Zero 4xx errors on write calls — every failed write REDUCES your score!
 
-Therefore: plan carefully, include all required fields, avoid unnecessary GET calls. Never guess — use known IDs from this prompt when possible.
+GET calls are FREE — they do NOT count against efficiency. Read as much as you need.
+Therefore:
+1. ALWAYS search with GET before creating with POST — if an entity already exists, use it!
+2. When the prompt gives a product number, org number, or name: GET first, create only if not found.
+3. Plan write calls precisely — include all required fields to avoid 422 errors.
+4. Use known IDs from ENVIRONMENT to avoid unnecessary writes.
+5. A 422 error on a write call + retry = TWO write calls + ONE error. Much worse than one GET + one correct write.
 
 ## CRITICAL: NEVER return an empty array!
 If you don't know the exact API calls for a task, ALWAYS try your best guess based on the prompt.
