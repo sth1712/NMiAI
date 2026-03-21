@@ -1165,13 +1165,17 @@ async def solve(request: Request):
                 for cc in cc_resp.json()["values"]:
                     desc = cc.get("description", "").lower()
                     cost_cats[cc["id"]] = cc.get("description", "")
-                    if "fly" in desc:
+                    if desc == "fly":
                         env_info["cost_cat_fly_id"] = cc["id"]
+                    elif desc == "flytog":
+                        env_info["cost_cat_flytog_id"] = cc["id"]
+                    elif desc == "flybuss":
+                        env_info["cost_cat_flybuss_id"] = cc["id"]
                     elif "hotell" in desc:
                         env_info["cost_cat_hotell_id"] = cc["id"]
-                    elif "taxi" in desc:
+                    elif desc == "taxi":
                         env_info["cost_cat_taxi_id"] = cc["id"]
-                    elif "tog" == desc or "tog" in desc:
+                    elif desc == "tog":
                         env_info["cost_cat_tog_id"] = cc["id"]
                     elif "mat" == desc:
                         env_info["cost_cat_mat_id"] = cc["id"]
