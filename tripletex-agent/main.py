@@ -578,10 +578,10 @@ NOTE: Credit note is created via PUT /:createCreditNote on the EXISTING invoice.
 Prompt: "Kunden har en forfalt faktura. Registrer purregebyr 55 NOK. Debet kundefordring (1500), kredit purregebyr-inntekt (3400). Lag også purrefaktura og registrer betaling."
 [
   {"method": "GET", "path": "/invoice", "params": {"invoiceDateFrom": "2020-01-01", "invoiceDateTo": "2030-12-31", "fields": "id,amount,amountOutstanding,customer(id,name)"}},
-  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Purregebyr", "voucherType": {"id": "VOUCHER_TYPE_MANUAL_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_1500_ID from ENVIRONMENT"}, "amount": 55.0, "amountCurrency": 55.0, "amountGross": 55.0, "amountGrossCurrency": 55.0, "currency": {"id": 1}, "row": 1, "description": "Kundefordring purregebyr"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_3400_ID from ENVIRONMENT"}, "amount": -55.0, "amountCurrency": -55.0, "amountGross": -55.0, "amountGrossCurrency": -55.0, "currency": {"id": 1}, "row": 2, "description": "Purregebyr-inntekt"}]}},
-  {"method": "PUT", "path": "/invoice/$PREV_0_ID/:createReminder", "params": {"date": "2026-03-20", "sendToCustomer": "true"}}
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Purregebyr", "voucherType": {"id": "VOUCHER_TYPE_MANUAL_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_1500_ID from ENVIRONMENT"}, "amount": 55.0, "amountCurrency": 55.0, "amountGross": 55.0, "amountGrossCurrency": 55.0, "currency": {"id": 1}, "row": 1, "description": "Kundefordring purregebyr", "customer": {"id": "$PREV_0_FIELD_customer"}}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_3400_ID from ENVIRONMENT"}, "amount": -55.0, "amountCurrency": -55.0, "amountGross": -55.0, "amountGrossCurrency": -55.0, "currency": {"id": 1}, "row": 2, "description": "Purregebyr-inntekt", "customer": {"id": "$PREV_0_FIELD_customer"}}]}},
+  {"method": "PUT", "path": "/invoice/$PREV_0_ID/:createReminder", "params": {"date": "2026-03-20", "type": "remindersReminder", "sendToCustomer": "true"}}
 ]
-NOTE: Use PUT /:createReminder on the overdue invoice. Use account 3400 (purregebyr-inntekt) from ENVIRONMENT.
+NOTE: CRITICAL: customer.id MUST be on EVERY posting for Purring voucherType! /:createReminder needs "type" param (e.g. "remindersReminder"). Use account 3400 from ENVIRONMENT.
 
 ## Misc: Delete entities
 ### Delete customer/product/supplier
