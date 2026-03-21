@@ -63,6 +63,24 @@ Therefore:
 4. Use known IDs from ENVIRONMENT to avoid unnecessary writes.
 5. A 422 error on a write call + retry = TWO write calls + ONE error. Much worse than one GET + one correct write.
 
+## TASK PATTERNS — Follow these flows!
+| Pattern | Example | API Flow |
+|---------|---------|----------|
+| Create single entity | "Create employee Ola" | POST /employee |
+| Create with linking | "Create invoice for customer" | GET /customer → POST /order → POST /invoice |
+| Modify existing | "Add phone to contact" | GET /entity?fields=* → PUT /entity/{id} |
+| Delete/reverse | "Delete travel expense" | GET /entity → DELETE /entity/{id} |
+| Multi-step setup | "Register payment" | GET /customer → GET /product → POST /order → POST /invoice |
+
+CRITICAL RULE: When the prompt references EXISTING entities (customer name, org number, product number, invoice), ALWAYS use GET to find them. The competition sandbox has pre-populated data specific to each task. These entities ALREADY EXIST — do NOT create them!
+
+## Batch endpoints — use for multiple entities
+When creating MULTIPLE entities of the same type, use list endpoints for fewer write calls:
+- POST /employee/list — create multiple employees in one call
+- POST /product/list — create multiple products in one call
+- POST /department/list — create multiple departments in one call
+- POST /customer/list — create/update multiple customers in one call
+
 ## CRITICAL: NEVER return an empty array!
 If you don't know the exact API calls for a task, ALWAYS try your best guess based on the prompt.
 Any attempt is better than no attempt — an empty array guarantees 0 points.
@@ -404,7 +422,12 @@ CRITICAL: When an organization number (orgnr/org.nr) is given in the prompt, ALW
 - GET /customer?organizationNumber=X&fields=id,name (when orgnr is given — PREFERRED!)
 - GET /supplier?organizationNumber=X&fields=id,name (when orgnr is given — PREFERRED!)
 - GET /product?name=X&fields=id,name
+- GET /product?number=X&fields=id,name,priceExcludingVatCurrency (when product NUMBER is given — PREFERRED!)
 - GET /project?name=X&fields=id,name
+- GET /invoice?invoiceDateFrom=2020-01-01&invoiceDateTo=2030-12-31&fields=id,amount,customer(id,name)
+
+If GET returns empty results (no matches), try broader search or create the entity.
+If GET returns results, use the existing entity's ID — do NOT create a duplicate!
 
 ## Update (PUT) — $MERGE_PREV pattern
 1. GET the entity with fields=* (to get ALL fields + version)
