@@ -99,7 +99,7 @@ Even if you're unsure about exact field names, try with reasonable guesses — t
 
 ### POST /employee
 Required: firstName, lastName, email (unique!), userType, department.id
-Optional: phoneNumberMobile, dateOfBirth (YYYY-MM-DD), employeeNumber, address (same format as customer postalAddress)
+Optional: phoneNumberMobile, dateOfBirth (YYYY-MM-DD), employeeNumber, nationalIdentityNumber (personnummer/fødselsnummer), address (same format as customer postalAddress)
 
 userType rules:
 - "STANDARD" — default, no special roles
@@ -126,6 +126,42 @@ Key entitlementIds:
 - 10 = AUTH_PROJECT_MANAGER (requires 45 first, requires EXTENDED)
 - 14 = AUTH_INVOICING
 - 15 = AUTH_CUSTOMER_ADMIN
+
+### Employment (POST /employee/employment) — for contract/salary tasks
+When creating an employee from a contract (PDF), you need BOTH the employee AND an employment record.
+POST /employee/employment creates the employment relationship with salary, occupation code, etc.
+Required: employee.id, startDate (YYYY-MM-DD)
+Employment details can be included INLINE in the employment POST:
+
+Example — complete employee from contract:
+POST /employee with: firstName, lastName, email, dateOfBirth, nationalIdentityNumber, userType, department.id
+Then POST /employee/employment with:
+{
+  "employee": {"id": "$PREV_0_ID"},
+  "startDate": "2025-01-01",
+  "employmentDetails": [{
+    "date": "2025-01-01",
+    "employmentType": "ORDINARY",
+    "employmentForm": "PERMANENT",
+    "remunerationType": "MONTHLY_WAGE",
+    "workingHoursScheme": "NOT_SHIFT",
+    "percentageOfFullTimeEquivalent": 100.0,
+    "annualSalary": 500000.0,
+    "occupationCode": {"id": 1}
+  }]
+}
+
+Key fields in employmentDetails:
+- employmentType: "ORDINARY" (standard), "MARITIME"
+- employmentForm: "PERMANENT" (fast), "TEMPORARY" (midlertidig)
+- remunerationType: "MONTHLY_WAGE", "HOURLY_WAGE", "FEE"
+- workingHoursScheme: "NOT_SHIFT" (standard), "ROUND_THE_CLOCK", "CONTINUOUS"
+- percentageOfFullTimeEquivalent: 100.0 = full time, 50.0 = half time
+- annualSalary: yearly salary in NOK
+- hourlyWage: hourly wage (alternative to annualSalary)
+- occupationCode: {"id": N} — use GET /employee/employment/occupationCode to find correct code
+
+For PDF contract tasks: Read ALL details from the PDF — name, personnummer, birthday, department, occupation, salary, start date, employment percentage. Include EVERYTHING.
 
 ## 2. CUSTOMER
 
@@ -450,6 +486,16 @@ Verified delete operations:
 # EXAMPLES
 
 ## Tier 1: Simple entity creation
+
+### Create employee from contract (PDF attachment — Tier 3!)
+Prompt: "Du har mottatt en arbeidskontrakt (se vedlagt PDF). Opprett ansatt med alle kontraktdata."
+When a PDF is attached, READ ALL details from it: name, personnummer, birthday, department, occupation code, salary, start date, employment percentage.
+[
+  {"method": "GET", "path": "/employee/employment/occupationCode", "params": {"fields": "id,nameNO,code"}},
+  {"method": "POST", "path": "/employee", "body": {"firstName": "FROM PDF", "lastName": "FROM PDF", "email": "FROM PDF", "dateOfBirth": "FROM PDF", "nationalIdentityNumber": "FROM PDF", "userType": "STANDARD", "department": {"id": DEPARTMENT_ID}}},
+  {"method": "POST", "path": "/employee/employment", "body": {"employee": {"id": "$PREV_1_ID"}, "startDate": "FROM PDF", "employmentDetails": [{"date": "FROM PDF start date", "employmentType": "ORDINARY", "employmentForm": "PERMANENT", "remunerationType": "MONTHLY_WAGE", "workingHoursScheme": "NOT_SHIFT", "percentageOfFullTimeEquivalent": "FROM PDF", "annualSalary": "FROM PDF", "occupationCode": {"id": "match FROM PDF occupation to $PREV_0 results"}}]}}
+]
+NOTE: Replace "FROM PDF" with actual values extracted from the attached PDF. GET occupationCode FIRST to find the right code ID.
 
 ### Create employee (uses ENVIRONMENT values — no GET calls needed!)
 Prompt: "Opprett en ansatt Ola Nordmann, ola@example.org"
