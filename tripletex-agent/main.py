@@ -1286,6 +1286,23 @@ async def solve(request: Request):
             env_info["department_id"] = dept_resp.json()["values"][0]["id"]
             env_info["department_name"] = dept_resp.json()["values"][0].get("name", "")
 
+        # 2b. Enable critical modules if not active
+        try:
+            modules_resp = http_requests.get(f"{base_url}/company/{env_info.get('company_id', 0)}", auth=auth, params={"fields": "id,modules"}, timeout=10)
+            if modules_resp.status_code == 200:
+                modules = modules_resp.json().get("value", {}).get("modules", {})
+                modules_to_enable = {}
+                if not modules.get("moduleDepartmentAccounting"):
+                    modules_to_enable["moduleDepartmentAccounting"] = True
+                if not modules.get("moduleProductAccounting"):
+                    modules_to_enable["moduleProductAccounting"] = True
+                if modules_to_enable:
+                    update_body = {"id": env_info.get("company_id"), "modules": modules_to_enable}
+                    http_requests.put(f"{base_url}/company", auth=auth, json=update_body, timeout=10)
+                    logger.info(f"Enabled modules: {list(modules_to_enable.keys())}")
+        except Exception:
+            pass
+
         # 3. Ensure bank account is configured (required for invoicing)
         acc_resp = http_requests.get(
             f"{base_url}/ledger/account",
