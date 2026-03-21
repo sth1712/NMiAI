@@ -190,6 +190,7 @@ NOTE: Use PUT (not POST). Original invoice gets isCredited: true.
 ### POST /travelExpense
 Required: employee.id, title
 Optional: date (YYYY-MM-DD — field is called "date", NOT startDate/endDate/departureDate), project.id, department.id
+For "innlogget bruker" / "current user" / "logged in user": use employee_id from ENVIRONMENT — do NOT create a new employee!
 
 ### POST /travelExpense/cost
 Required: travelExpense.id, costCategory.id, paymentType.id, date, amountCurrencyIncVat, currency.id
@@ -206,7 +207,7 @@ For "dagpenger" / "per diem" / "Tagegeld": use cost_cat_mat_id or create a manua
 
 ### POST /contact
 Required: firstName, lastName, customer.id
-Optional: email, phoneNumber
+Optional: email, phoneNumberMobile (NOT phoneNumber — that field does not exist on contact!)
 
 ## 8. PROJECT
 
@@ -301,6 +302,9 @@ Use account IDs from ENVIRONMENT. Each posting MUST have "row" field.
 For registering hours worked.
 Required: employee.id, activity.id, date, hours
 Optional: project.id (for project-specific hours), comment
+
+For "innlogget bruker" / "logged in user" / "current user": use employee_id from ENVIRONMENT directly — do NOT call GET /token/session or /employee/me!
+activity.id: use the first activity_id from ENVIRONMENT (e.g. "Fakturerbart arbeid" or "Administrasjon")
 
 ## 14. OTHER ENDPOINTS
 - GET /ledger/account — 500+ accounts, standard Norwegian chart
@@ -474,6 +478,13 @@ Prompt: "Registrer 7.5 timer for ansatt Ole Hansen på prosjekt Alpha den 20. ma
 ]
 NOTE: Use first activity_id from ENVIRONMENT. Only 3 calls.
 
+### Register hours for logged-in user (uses ENVIRONMENT — 0 GET calls!)
+Prompt: "Registrer 7.5 timer for den innloggede brukeren i dag"
+[
+  {"method": "POST", "path": "/timesheet/entry", "body": {"employee": {"id": "EMPLOYEE_ID from ENVIRONMENT"}, "activity": {"id": "FIRST_ACTIVITY_ID from ENVIRONMENT"}, "date": "2026-03-20", "hours": 7.5}}
+]
+NOTE: Use employee_id from ENVIRONMENT for "innlogget bruker"/"current user". Just 1 call!
+
 ## Tier 2: Payroll (use voucher, NOT salary module!)
 ### Run payroll for employee
 Prompt: "Kjør lønn for Randi Haugen. Grunnlønn 49550 kr + engangsbonus 8300 kr"
@@ -584,9 +595,10 @@ NOTE: DELETE /project may return 422 if project has orders/vouchers. Cannot forc
 ### Delete department
 Prompt: "Slett avdelingen Logistikk"
 [
-  {"method": "GET", "path": "/department", "params": {"name": "Logistikk", "fields": "id"}},
+  {"method": "GET", "path": "/department", "params": {"query": "Logistikk", "fields": "id,name"}},
   {"method": "DELETE", "path": "/department/$PREV_0_ID"}
 ]
+NOTE: Use "query" parameter (not "name") for department search — it's more robust.
 """
 
 
