@@ -225,18 +225,32 @@ Optional: departmentNumber (string, e.g. "200")
 
 ## 10. SALARY (PAYROLL)
 
-### Run payroll flow:
-1. Create employee if not exists (POST /employee)
-2. Ensure employee has employment (GET /employee/employment?employeeId=X)
-3. Create payslip: POST /salary/payslip with employee.id, date, year, month
-4. Add salary lines: POST /salary/transaction with payslip.id, salaryType.id, amount
+IMPORTANT: POST /salary/payslip returns 403 (module not enabled). Use voucher instead!
 
-### Salary types (GET /salary/type for full list):
-- id for "Fastlønn" (number 2000) — base salary
-- id for "Timelønn" (number 2001) — hourly pay
-- Look for bonus types or use a general salary type
+### ALTERNATIVE: Register salary as a manual voucher (Lønnsbilag)
+This is the CORRECT approach when the salary module is not available:
+POST /ledger/voucher with voucherType "Lønnsbilag" and postings for salary accounts.
 
-### Note: Salary module may require specific permissions. If POST /salary/payslip returns 403, the module may not be enabled.
+Common salary accounts:
+- 5000 = Lønn (debit — the salary cost)
+- 2930 = Skyldig lønn / Gjeld til ansatte (credit — what's owed)
+- 2600 = Skattetrekk (credit — tax withholding)
+- 2770 = Arbeidsgiveravgift (credit)
+
+Example for salary 49550 kr:
+POST /ledger/voucher with:
+- voucherType: {"id": VOUCHER_TYPE_LONNSBILAG_ID from ENVIRONMENT or GET /ledger/voucherType}
+- postings: [
+    {account: 5000, amount: 49550, row: 1, description: "Fastlønn"},
+    {account: 2930, amount: -49550, row: 2, description: "Skyldig lønn"}
+  ]
+
+For salary + bonus (49550 + 8300):
+- posting 1: account 5000, amount: 57850 (total), row: 1
+- posting 2: account 2930, amount: -57850, row: 2
+
+### Salary types (for reference only — salary module may not be available):
+- "Fastlønn" (number 2000), "Timelønn" (number 2001)
 
 ## 11. VOUCHER / BILAG (ledger/voucher)
 
@@ -462,17 +476,17 @@ Prompt: "Registrer 7.5 timer for ansatt Ole Hansen på prosjekt Alpha den 20. ma
 ]
 NOTE: Use first activity_id from ENVIRONMENT. Only 3 calls.
 
-## Tier 2: Payroll
+## Tier 2: Payroll (use voucher, NOT salary module!)
 ### Run payroll for employee
 Prompt: "Kjør lønn for Randi Haugen. Grunnlønn 49550 kr + engangsbonus 8300 kr"
+IMPORTANT: POST /salary/payslip returns 403. Use POST /ledger/voucher with voucherType "Lønnsbilag" instead!
 [
-  {"method": "GET", "path": "/employee", "params": {"firstName": "Randi", "lastName": "Haugen", "fields": "id"}},
-  {"method": "GET", "path": "/employee/employment", "params": {"employeeId": "$PREV_0_ID", "fields": "id"}},
-  {"method": "POST", "path": "/salary/payslip", "body": {"employee": {"id": "$PREV_0_ID"}, "date": "2026-03-20", "year": 2026, "month": 3}},
-  {"method": "POST", "path": "/salary/transaction", "body": {"payslip": {"id": "$PREV_2_ID"}, "salaryType": {"id": "SALARY_TYPE_FASTLONN_ID from ENVIRONMENT"}, "amount": 49550}},
-  {"method": "POST", "path": "/salary/transaction", "body": {"payslip": {"id": "$PREV_2_ID"}, "salaryType": {"id": "SALARY_TYPE_BONUS_ID from ENVIRONMENT"}, "amount": 8300}}
+  {"method": "GET", "path": "/ledger/voucherType", "params": {"fields": "id,name"}},
+  {"method": "GET", "path": "/ledger/account", "params": {"numberFrom": "5000", "numberTo": "5000", "fields": "id,number,name"}},
+  {"method": "GET", "path": "/ledger/account", "params": {"numberFrom": "2930", "numberTo": "2930", "fields": "id,number,name"}},
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Lønn mars 2026 - Randi Haugen (49550 + 8300 bonus)", "voucherType": {"id": "VOUCHER_TYPE_LONNSBILAG_ID"}, "postings": [{"date": "2026-03-20", "account": {"id": "$PREV_1_ID"}, "amount": 57850.0, "amountCurrency": 57850.0, "amountGross": 57850.0, "amountGrossCurrency": 57850.0, "currency": {"id": 1}, "row": 1, "description": "Fastlønn 49550 + bonus 8300"}, {"date": "2026-03-20", "account": {"id": "$PREV_2_ID"}, "amount": -57850.0, "amountCurrency": -57850.0, "amountGross": -57850.0, "amountGrossCurrency": -57850.0, "currency": {"id": 1}, "row": 2, "description": "Skyldig lønn"}]}}
 ]
-NOTE: Use salary_type_ids from ENVIRONMENT. If 403, salary module may not be enabled — try anyway.
+NOTE: Use account IDs from ENVIRONMENT when available. VoucherType for Lønnsbilag from ENVIRONMENT.
 
 ## Tier 2: Credit note
 ### Create credit note for existing invoice
@@ -1057,10 +1071,15 @@ async def solve(request: Request):
             vt_resp = http_requests.get(f"{base_url}/ledger/voucherType", auth=auth, params={"fields": "id,name"}, timeout=10)
             if vt_resp.status_code == 200 and vt_resp.json().get("values"):
                 for vt in vt_resp.json()["values"]:
-                    if "leverand" in vt.get("name", "").lower():
+                    name_lower = vt.get("name", "").lower()
+                    if "leverand" in name_lower:
                         env_info["voucher_type_supplier_id"] = vt["id"]
-                    elif "kunde" in vt.get("name", "").lower() or "salg" in vt.get("name", "").lower():
+                    elif "kunde" in name_lower or "salg" in name_lower or "utgående" in name_lower:
                         env_info["voucher_type_customer_id"] = vt["id"]
+                    elif "lønn" in name_lower or "lonn" in name_lower:
+                        env_info["voucher_type_salary_id"] = vt["id"]
+                    elif "betaling" == name_lower or name_lower == "betaling":
+                        env_info["voucher_type_payment_id"] = vt["id"]
         except Exception:
             pass
 
@@ -1136,6 +1155,8 @@ async def solve(request: Request):
 - travel_payment_type_id: {env_info.get('travel_payment_type_id', 'unknown')}
 - voucher_type_supplier_id: {env_info.get('voucher_type_supplier_id', 'unknown')}
 - voucher_type_customer_id: {env_info.get('voucher_type_customer_id', 'unknown')}
+- voucher_type_salary_id (Lønnsbilag): {env_info.get('voucher_type_salary_id', 'unknown')}
+- voucher_type_payment_id (Betaling): {env_info.get('voucher_type_payment_id', 'unknown')}
 - activity_ids: {json.dumps(env_info.get('activity_ids', []))}
 - salary_type_ids: {json.dumps(env_info.get('salary_type_ids', []))}
 - account_1500_id (Kundefordringer): {env_info.get('account_1500_id', 'unknown')}
