@@ -527,7 +527,7 @@ CRITICAL RULES for voucher postings:
 ## Tier 3: Avskrivning (depreciation)
 Prompt: "Avskriv kontorutstyr til verdi 50000 kr med 20% lineær avskrivning"
 [
-  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Avskrivning kontorutstyr 20%", "voucherType": {"id": "VOUCHER_TYPE from ENVIRONMENT (Manuelt bilag)"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_6010_ID from ENVIRONMENT"}, "amount": 10000.0, "amountCurrency": 10000.0, "amountGross": 10000.0, "amountGrossCurrency": 10000.0, "currency": {"id": 1}, "row": 1, "description": "Avskrivning 20% av 50000"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_1200_ID from ENVIRONMENT"}, "amount": -10000.0, "amountCurrency": -10000.0, "amountGross": -10000.0, "amountGrossCurrency": -10000.0, "currency": {"id": 1}, "row": 2, "description": "Reduksjon anleggsmidler"}]}}
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Avskrivning kontorutstyr 20%", "voucherType": {"id": "VOUCHER_TYPE_MANUAL_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_6010_ID from ENVIRONMENT"}, "amount": 10000.0, "amountCurrency": 10000.0, "amountGross": 10000.0, "amountGrossCurrency": 10000.0, "currency": {"id": 1}, "row": 1, "description": "Avskrivning 20% av 50000"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_1200_ID from ENVIRONMENT"}, "amount": -10000.0, "amountCurrency": -10000.0, "amountGross": -10000.0, "amountGrossCurrency": -10000.0, "currency": {"id": 1}, "row": 2, "description": "Reduksjon anleggsmidler"}]}}
 ]
 
 ## Tier 3: Periodisering (prepaid expense)
@@ -535,14 +535,14 @@ Prompt: "Forskuddsbetal 12000 kr for årlig forsikring, periodiser månedlig"
 Step 1 — Betaling: Voucher med 1700 (forskuddsbetalt) debit / 1920 (bank) kredit
 Step 2 — Månedlig kostnad: Voucher med 6800 (kostnad) debit / 1700 (forskuddsbetalt) kredit (1000 kr per mnd)
 [
-  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Forskuddsbetalt forsikring 12 mnd", "voucherType": {"id": "VOUCHER_TYPE from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_1700_ID from ENVIRONMENT"}, "amount": 12000.0, "amountCurrency": 12000.0, "amountGross": 12000.0, "amountGrossCurrency": 12000.0, "currency": {"id": 1}, "row": 1, "description": "Forskuddsbetalt forsikring"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_1920_ID from ENVIRONMENT"}, "amount": -12000.0, "amountCurrency": -12000.0, "amountGross": -12000.0, "amountGrossCurrency": -12000.0, "currency": {"id": 1}, "row": 2, "description": "Utbetaling fra bank"}]}},
-  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Periodisering forsikring mars", "voucherType": {"id": "VOUCHER_TYPE from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_6800_ID from ENVIRONMENT"}, "amount": 1000.0, "amountCurrency": 1000.0, "amountGross": 1000.0, "amountGrossCurrency": 1000.0, "currency": {"id": 1}, "row": 1, "description": "Forsikringskostnad mars"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_1700_ID from ENVIRONMENT"}, "amount": -1000.0, "amountCurrency": -1000.0, "amountGross": -1000.0, "amountGrossCurrency": -1000.0, "currency": {"id": 1}, "row": 2, "description": "Reduksjon forskuddsbetalt"}]}}
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Forskuddsbetalt forsikring 12 mnd", "voucherType": {"id": "VOUCHER_TYPE_MANUAL_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_1700_ID from ENVIRONMENT"}, "amount": 12000.0, "amountCurrency": 12000.0, "amountGross": 12000.0, "amountGrossCurrency": 12000.0, "currency": {"id": 1}, "row": 1, "description": "Forskuddsbetalt forsikring"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_1920_ID from ENVIRONMENT"}, "amount": -12000.0, "amountCurrency": -12000.0, "amountGross": -12000.0, "amountGrossCurrency": -12000.0, "currency": {"id": 1}, "row": 2, "description": "Utbetaling fra bank"}]}},
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Periodisering forsikring mars", "voucherType": {"id": "VOUCHER_TYPE_MANUAL_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_6800_ID from ENVIRONMENT"}, "amount": 1000.0, "amountCurrency": 1000.0, "amountGross": 1000.0, "amountGrossCurrency": 1000.0, "currency": {"id": 1}, "row": 1, "description": "Forsikringskostnad mars"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_1700_ID from ENVIRONMENT"}, "amount": -1000.0, "amountCurrency": -1000.0, "amountGross": -1000.0, "amountGrossCurrency": -1000.0, "currency": {"id": 1}, "row": 2, "description": "Reduksjon forskuddsbetalt"}]}}
 ]
 
 ## Tier 3: Bankgebyr
 Prompt: "Registrer bankgebyr på 250 kr"
 [
-  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Bankgebyr mars 2026", "voucherType": {"id": "VOUCHER_TYPE from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_7770_ID from ENVIRONMENT"}, "amount": 250.0, "amountCurrency": 250.0, "amountGross": 250.0, "amountGrossCurrency": 250.0, "currency": {"id": 1}, "row": 1, "description": "Bankgebyr"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_1920_ID from ENVIRONMENT"}, "amount": -250.0, "amountCurrency": -250.0, "amountGross": -250.0, "amountGrossCurrency": -250.0, "currency": {"id": 1}, "row": 2, "description": "Fra bankkonto"}]}}
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Bankgebyr mars 2026", "voucherType": {"id": "VOUCHER_TYPE_MANUAL_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_7770_ID from ENVIRONMENT"}, "amount": 250.0, "amountCurrency": 250.0, "amountGross": 250.0, "amountGrossCurrency": 250.0, "currency": {"id": 1}, "row": 1, "description": "Bankgebyr"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_1920_ID from ENVIRONMENT"}, "amount": -250.0, "amountCurrency": -250.0, "amountGross": -250.0, "amountGrossCurrency": -250.0, "currency": {"id": 1}, "row": 2, "description": "Fra bankkonto"}]}}
 ]
 
 ## Tier 3: Utvidet lønn (grunnlønn + skattetrekk + arbeidsgiveravgift)
@@ -552,6 +552,18 @@ Prompt: "Kjør lønn for ansatt med grunnlønn 45000, skattetrekk 35%, og arbeid
   {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Arbeidsgiveravgift mars 2026", "voucherType": {"id": "VOUCHER_TYPE_SALARY_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_5400_ID from ENVIRONMENT"}, "amount": 6345.0, "amountCurrency": 6345.0, "amountGross": 6345.0, "amountGrossCurrency": 6345.0, "currency": {"id": 1}, "row": 1, "description": "Arbeidsgiveravgift 14.1%"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_2770_ID from ENVIRONMENT"}, "amount": -6345.0, "amountCurrency": -6345.0, "amountGross": -6345.0, "amountGrossCurrency": -6345.0, "currency": {"id": 1}, "row": 2, "description": "Skyldig arbeidsgiveravgift"}]}}
 ]
 NOTE: Two vouchers — one for salary (lønn-skatt-netto), one for employer tax (AGA). Amounts MUST balance per voucher.
+
+## Tier 3: Feilretting i hovedbok (error correction in general ledger)
+Prompt: "Vi har oppdaget feil i hovedboka. Konto 6860 ble brukt i stedet for 6590 (beløp 5100 kr). Rett feilen."
+For EACH error, create a correction voucher that reverses the wrong posting and adds the correct one.
+You need to look up account IDs for accounts NOT in ENVIRONMENT — use GET /ledger/account?numberFrom=X&numberTo=X&fields=id,number,name
+IMPORTANT: Use voucher_type_manual_id from ENVIRONMENT for ALL correction vouchers!
+[
+  {"method": "GET", "path": "/ledger/account", "params": {"numberFrom": "6860", "numberTo": "6860", "fields": "id,number,name"}},
+  {"method": "GET", "path": "/ledger/account", "params": {"numberFrom": "6590", "numberTo": "6590", "fields": "id,number,name"}},
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Korreksjon: Flyttet fra konto 6860 til 6590", "voucherType": {"id": "VOUCHER_TYPE_MANUAL_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "$PREV_1_ID"}, "amount": 5100.0, "amountCurrency": 5100.0, "amountGross": 5100.0, "amountGrossCurrency": 5100.0, "currency": {"id": 1}, "row": 1, "description": "Korreksjon debit riktig konto 6590"}, {"date": "2026-03-20", "account": {"id": "$PREV_0_ID"}, "amount": -5100.0, "amountCurrency": -5100.0, "amountGross": -5100.0, "amountGrossCurrency": -5100.0, "currency": {"id": 1}, "row": 2, "description": "Korreksjon kredit feil konto 6860"}]}}
+]
+NOTE: Look up EACH account separately so you get DIFFERENT IDs for debit and credit. Use $PREV_0_ID and $PREV_1_ID to reference them correctly.
 
 ## Update and delete — additional types
 ### Update supplier
@@ -1150,6 +1162,8 @@ async def solve(request: Request):
                         env_info["voucher_type_salary_id"] = vt["id"]
                     elif "betaling" == name_lower or name_lower == "betaling":
                         env_info["voucher_type_payment_id"] = vt["id"]
+                    elif "manuelt" in name_lower or "manuell" in name_lower or "manuel" in name_lower:
+                        env_info["voucher_type_manual_id"] = vt["id"]
         except Exception:
             pass
 
@@ -1287,6 +1301,7 @@ async def solve(request: Request):
 - voucher_type_customer_id: {env_info.get('voucher_type_customer_id', 'unknown')}
 - voucher_type_salary_id (Lønnsbilag): {env_info.get('voucher_type_salary_id', 'unknown')}
 - voucher_type_payment_id (Betaling): {env_info.get('voucher_type_payment_id', 'unknown')}
+- voucher_type_manual_id (Manuelt bilag — for corrections, depreciation, accruals, bank charges): {env_info.get('voucher_type_manual_id', 'unknown')}
 - activity_ids: {json.dumps(env_info.get('activity_ids', []))}
 - salary_type_ids: {json.dumps(env_info.get('salary_type_ids', []))}
 
