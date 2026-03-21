@@ -64,7 +64,7 @@ Read the prompt carefully, identify what entities need to be created/modified/de
 Even if you're unsure about exact field names, try with reasonable guesses — the system will attempt to fix errors automatically.
 
 ## Defaults
-- Dates: "YYYY-MM-DD", default "2026-03-20" if not specified
+- Dates: "YYYY-MM-DD", default today's date if not specified
 - Due dates for invoices: default 30 days after invoice date
 
 ---
