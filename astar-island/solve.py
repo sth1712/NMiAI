@@ -21,8 +21,8 @@ import requests
 
 BASE = "https://api.ainm.no/astar-island"
 JWT_TOKEN = os.environ.get("JWT_TOKEN", "")
-MIN_FLOOR = 0.002
-DEAD_SETT_FOREST_RATIO = 0.463  # Updated: avg over R2-R8 (range 0.435-0.516)
+MIN_FLOOR = 0.01  # REGELKRAV: minimum 0.01, ALDRI lavere
+DEAD_SETT_FOREST_RATIO = 0.316  # sf/(sf+se) share, NOT sf/se ratio. Avg R2-R8.
 
 
 def get_session():
@@ -209,7 +209,7 @@ def build_prior(grid, settlements, features, exp_rate, surv_rate):
                 # Apply survival correction at close distances
                 if dist <= 2:
                     base[1] *= surv_correction
-                strength = 5.0
+                strength = 7.0  # Deep Research V2: økt fra 5.0 for sterkere prior (demper stokastisk støy)
 
             elif cell == 11:  # Plains
                 base = np.array(plains_prof[dist])
@@ -217,12 +217,12 @@ def build_prior(grid, settlements, features, exp_rate, surv_rate):
                     base[2] *= 2.0
                 if dist <= 2:
                     base[1] *= surv_correction
-                strength = 5.0
+                strength = 7.0  # Deep Research V2: økt fra 5.0
 
             elif cell in (1, 2):  # Settlement or Port
                 is_port = (r, c) in port_pos or cell == 2
                 base = settlement_probs(surv_rate, exp_rate, is_port, adj_o > 0, adj_f)
-                strength = 3.5  # Missing Fix A: lower for settlements (highest error category)
+                strength = 5.0  # Deep Research V2: økt fra 3.5 (sterkere prior demper enkeltobservasjons-støy)
 
             elif cell == 3:  # Ruin
                 base = np.array([0.35, 0.10, 0.03, 0.12, 0.40, 0])
@@ -232,11 +232,11 @@ def build_prior(grid, settlements, features, exp_rate, surv_rate):
                         base[2] *= 2.0
                 if adj_f >= 2:
                     base[4] *= 1.3
-                strength = 3.0
+                strength = 4.5  # Deep Research V2: økt fra 3.0
 
             else:  # Empty
                 base = np.array(plains_prof.get(dist, plains_prof[7]))
-                strength = 5.0
+                strength = 7.0  # Deep Research V2: økt fra 5.0
 
             base = np.maximum(base, 0.001)
             base = base / base.sum()
@@ -246,19 +246,9 @@ def build_prior(grid, settlements, features, exp_rate, surv_rate):
 
 
 def alpha_to_prediction(alpha, grid=None):
-    """Convert Dirichlet alpha to predictions. Skip floor for static cells."""
+    """Convert Dirichlet alpha to predictions. Floor 0.01 per REGLER."""
     pred = alpha / alpha.sum(axis=-1, keepdims=True)
-    H, W = pred.shape[0], pred.shape[1]
-    if grid is not None:
-        # Static cells (ocean/mountain): use tiny floor, don't waste probability
-        for r in range(H):
-            for c in range(W):
-                if grid[r][c] in (10, 5):
-                    pred[r][c] = np.maximum(pred[r][c], 0.0001)
-                else:
-                    pred[r][c] = np.maximum(pred[r][c], MIN_FLOOR)
-    else:
-        pred = np.maximum(pred, MIN_FLOOR)
+    pred = np.maximum(pred, MIN_FLOOR)  # 0.01 for ALL cells per rules
     pred = pred / pred.sum(axis=-1, keepdims=True)
     return pred
 

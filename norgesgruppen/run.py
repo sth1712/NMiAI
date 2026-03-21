@@ -97,7 +97,7 @@ def run_ensemble(models, img_path, iou_thr=0.55, skip_box_thr=0.001):
     all_labels = []
 
     for yolo, imgsz in models:
-        results = yolo(str(img_path), verbose=False, imgsz=imgsz, conf=0.001, iou=0.7)
+        results = yolo(str(img_path), verbose=False, imgsz=imgsz, conf=0.001, iou=0.7, max_det=1500, agnostic_nms=True)
         boxes, scores, labels = [], [], []
         for r in results:
             for box in r.boxes:
@@ -216,7 +216,7 @@ def main():
         else:
             # Single model
             yolo, imgsz = models[0]
-            results = yolo(str(img_path), verbose=False, imgsz=imgsz, conf=0.001, iou=0.7)
+            results = yolo(str(img_path), verbose=False, imgsz=imgsz, conf=0.001, iou=0.7, max_det=1500, agnostic_nms=True)
             pil_img = Image.open(str(img_path)).convert("RGB")
 
             boxes_data = []
