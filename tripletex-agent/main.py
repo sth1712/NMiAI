@@ -91,6 +91,15 @@ Even if you're unsure about exact field names, try with reasonable guesses — t
 - Dates: "YYYY-MM-DD", default today's date if not specified
 - Due dates for invoices: default 30 days after invoice date
 
+## TOP RULES — VIOLATING THESE = 0 POINTS
+1. Voucher postings: debit and credit MUST use DIFFERENT account IDs. NEVER same account on both rows.
+2. Fields syntax: use PARENTHESES for nested fields: customer(id,name) — NEVER customer.id
+3. GET /invoice: ALWAYS include invoiceDateFrom=2020-01-01 and invoiceDateTo=2030-12-31
+4. NEVER return an empty JSON array — any attempt is better than nothing
+5. Use ENVIRONMENT IDs directly — NEVER hardcode IDs, they change per sandbox
+6. For voucher postings: set amountCurrency=amount, amountGross=amount, amountGrossCurrency=amount (always same value)
+7. When PDF/files are attached: extract ACTUAL values — never send placeholder text like "FROM PDF"
+
 ---
 
 # API REFERENCE
@@ -391,13 +400,7 @@ Optional: project.id (for project-specific hours), comment
 For "innlogget bruker" / "logged in user" / "current user": use employee_id from ENVIRONMENT directly — do NOT call GET /token/session or /employee/me!
 activity.id: use the first activity_id from ENVIRONMENT (e.g. "Fakturerbart arbeid" or "Administrasjon")
 
-## 14. INCOMING INVOICE (inngående faktura)
-
-### POST /incomingInvoice
-Alternative to supplierInvoice — may work when /supplierInvoice gives 500.
-After creating: POST /incomingInvoice/{voucherId}/addPayment to register payment.
-
-## 15. VOUCHER OPERATIONS
+## 14. VOUCHER OPERATIONS
 
 ### PUT /ledger/voucher/{id}/:reverse
 Reverse an existing voucher — creates a counter-voucher that cancels out the original.
@@ -546,13 +549,13 @@ Verified delete operations:
 
 ### Create employee from contract (PDF attachment — Tier 3!)
 Prompt: "Du har mottatt en arbeidskontrakt (se vedlagt PDF). Opprett ansatt med alle kontraktdata."
-When a PDF is attached, READ ALL details from it: name, personnummer, birthday, department, occupation code, salary, start date, employment percentage.
+IMPORTANT: Read the attached PDF carefully and extract ALL values. Do NOT use placeholder text — use the ACTUAL values from the PDF.
 [
   {"method": "GET", "path": "/employee/employment/occupationCode", "params": {"fields": "id,nameNO,code"}},
-  {"method": "POST", "path": "/employee", "body": {"firstName": "FROM PDF", "lastName": "FROM PDF", "email": "FROM PDF", "dateOfBirth": "FROM PDF", "nationalIdentityNumber": "FROM PDF", "userType": "STANDARD", "department": {"id": DEPARTMENT_ID}}},
-  {"method": "POST", "path": "/employee/employment", "body": {"employee": {"id": "$PREV_1_ID"}, "startDate": "FROM PDF", "employmentDetails": [{"date": "FROM PDF start date", "employmentType": "ORDINARY", "employmentForm": "PERMANENT", "remunerationType": "MONTHLY_WAGE", "workingHoursScheme": "NOT_SHIFT", "percentageOfFullTimeEquivalent": "FROM PDF", "annualSalary": "FROM PDF", "occupationCode": {"id": "match FROM PDF occupation to $PREV_0 results"}}]}}
+  {"method": "POST", "path": "/employee", "body": {"firstName": "Maria", "lastName": "Gonzalez", "email": "maria.gonzalez@firma.no", "dateOfBirth": "1990-05-15", "nationalIdentityNumber": "15059012345", "userType": "STANDARD", "department": {"id": DEPARTMENT_ID}}},
+  {"method": "POST", "path": "/employee/employment", "body": {"employee": {"id": "$PREV_1_ID"}, "startDate": "2026-04-01", "employmentDetails": [{"date": "2026-04-01", "employmentType": "ORDINARY", "employmentForm": "PERMANENT", "remunerationType": "MONTHLY_WAGE", "workingHoursScheme": "NOT_SHIFT", "percentageOfFullTimeEquivalent": 80.0, "annualSalary": 520000.0, "occupationCode": {"id": "$PREV_0_ID"}}]}}
 ]
-NOTE: Replace "FROM PDF" with actual values extracted from the attached PDF. GET occupationCode FIRST to find the right code ID.
+NOTE: The values above are EXAMPLES. Replace them with the ACTUAL values from the attached PDF/contract. Every field must contain real data, not placeholder text.
 
 ### Create employee (uses ENVIRONMENT values — no GET calls needed!)
 Prompt: "Opprett en ansatt Ola Nordmann, ola@example.org"
@@ -689,7 +692,11 @@ Step 1: Find the supplier (GET /supplier?name=Staples)
 Step 2: Create voucher with supplier.id on EVERY posting
 [
   {"method": "GET", "path": "/supplier", "params": {"name": "Staples", "fields": "id"}},
-  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Leverandørfaktura INV-001 fra Staples", "voucherType": {"id": "VOUCHER_TYPE_SUPPLIER_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_6800_ID from ENVIRONMENT"}, "amount": 10000.0, "amountCurrency": 10000.0, "amountGross": 10000.0, "amountGrossCurrency": 10000.0, "currency": {"id": 1}, "row": 1, "supplier": {"id": "$PREV_0_ID"}, "description": "Kontorrekvisita"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_2710_ID from ENVIRONMENT"}, "amount": 2500.0, "amountCurrency": 2500.0, "amountGross": 2500.0, "amountGrossCurrency": 2500.0, "currency": {"id": 1}, "row": 2, "supplier": {"id": "$PREV_0_ID"}, "description": "Inngående MVA 25%"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_2400_ID from ENVIRONMENT"}, "amount": -12500.0, "amountCurrency": -12500.0, "amountGross": -12500.0, "amountGrossCurrency": -12500.0, "currency": {"id": 1}, "row": 3, "supplier": {"id": "$PREV_0_ID"}, "description": "Leverandørgjeld"}]}}
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Leverandørfaktura INV-001 fra Staples", "voucherType": {"id": VOUCHER_TYPE_SUPPLIER_ID}, "postings": [
+    {"date": "2026-03-20", "account": {"id": ACCOUNT_6800_ID}, "amount": 10000.0, "amountCurrency": 10000.0, "amountGross": 10000.0, "amountGrossCurrency": 10000.0, "currency": {"id": 1}, "row": 1, "supplier": {"id": "$PREV_0_ID"}, "description": "Kontorrekvisita (netto)"},
+    {"date": "2026-03-20", "account": {"id": ACCOUNT_2710_ID}, "amount": 2500.0, "amountCurrency": 2500.0, "amountGross": 2500.0, "amountGrossCurrency": 2500.0, "currency": {"id": 1}, "row": 2, "supplier": {"id": "$PREV_0_ID"}, "description": "Inngående MVA 25%"},
+    {"date": "2026-03-20", "account": {"id": ACCOUNT_2400_ID}, "amount": -12500.0, "amountCurrency": -12500.0, "amountGross": -12500.0, "amountGrossCurrency": -12500.0, "currency": {"id": 1}, "row": 3, "supplier": {"id": "$PREV_0_ID"}, "description": "Leverandørgjeld"}
+  ]}}
 ]
 CRITICAL: supplier.id MUST be on EVERY posting! Without it you get "Leverandør mangler" error. Use POST /ledger/voucher, NOT /supplierInvoice (500).
 
@@ -918,7 +925,7 @@ NOTE: PUT /:reverse creates a counter-voucher automatically. Much simpler than m
 ## Tier 3: Opening balance (åpningsbalanse)
 Prompt: "Sett åpningsbalanse med 500000 kr på bankkonto og 500000 kr i egenkapital"
 [
-  {"method": "POST", "path": "/ledger/voucher/openingBalance", "body": {"date": "2026-01-01", "description": "Åpningsbalanse", "postings": [{"account": {"id": "ACCOUNT_1920_ID from ENVIRONMENT"}, "amount": 500000.0, "amountCurrency": 500000.0, "amountGross": 500000.0, "amountGrossCurrency": 500000.0, "currency": {"id": 1}, "row": 1, "description": "Bankinnskudd"}, {"account": {"number": 2050}, "amount": -500000.0, "amountCurrency": -500000.0, "amountGross": -500000.0, "amountGrossCurrency": -500000.0, "currency": {"id": 1}, "row": 2, "description": "Egenkapital"}]}}
+  {"method": "POST", "path": "/ledger/voucher/openingBalance", "body": {"date": "2026-01-01", "description": "Åpningsbalanse", "postings": [{"account": {"id": "ACCOUNT_1920_ID from ENVIRONMENT"}, "amount": 500000.0, "amountCurrency": 500000.0, "amountGross": 500000.0, "amountGrossCurrency": 500000.0, "currency": {"id": 1}, "row": 1, "description": "Bankinnskudd"}, {"account": {"id": ACCOUNT_2050_ID}, "amount": -500000.0, "amountCurrency": -500000.0, "amountGross": -500000.0, "amountGrossCurrency": -500000.0, "currency": {"id": 1}, "row": 2, "description": "Egenkapital"}]}}
 ]
 NOTE: Use the dedicated /ledger/voucher/openingBalance endpoint. POST creates, DELETE removes existing.
 
