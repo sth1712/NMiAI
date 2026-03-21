@@ -1481,28 +1481,6 @@ async def solve(request: Request):
             env_info["department_id"] = dept_resp.json()["values"][0]["id"]
             env_info["department_name"] = dept_resp.json()["values"][0].get("name", "")
 
-        # 2b. Enable critical modules if not active (use GET+merge to avoid overwriting company settings)
-        try:
-            modules_resp = http_requests.get(f"{base_url}/company/{env_info.get('company_id', 0)}", auth=auth, params={"fields": "*"}, timeout=10)
-            if modules_resp.status_code == 200:
-                company_data = modules_resp.json().get("value", {})
-                modules = company_data.get("modules", {})
-                needs_update = False
-                if not modules.get("moduleDepartmentAccounting"):
-                    modules["moduleDepartmentAccounting"] = True
-                    needs_update = True
-                if not modules.get("moduleProductAccounting"):
-                    modules["moduleProductAccounting"] = True
-                    needs_update = True
-                if needs_update:
-                    company_data["modules"] = modules
-                    mod_resp = http_requests.put(f"{base_url}/company", auth=auth, json=company_data, timeout=10)
-                    logger.info(f"Enable modules: {mod_resp.status_code}")
-                    if mod_resp.status_code >= 400:
-                        logger.warning(f"Module enable FAILED: {mod_resp.text[:300]}")
-        except Exception:
-            pass
-
         # 3. Ensure bank account is configured (required for invoicing)
         acc_resp = http_requests.get(
             f"{base_url}/ledger/account",
