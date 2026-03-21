@@ -505,6 +505,78 @@ Prompt: "Slett kunden TestFirma AS"
   {"method": "DELETE", "path": "/customer/$PREV_0_ID"}
 ]
 NOTE: Works for /customer, /product, /order (not invoiced), /travelExpense. NOT for /invoice (use credit note) or /employee (403).
+
+## VOUCHER FALLBACK — For oppgaver uten spesifikt endepunkt
+If you cannot find a specific API endpoint for the task, use POST /ledger/voucher with the correct voucherType and account IDs from ENVIRONMENT. ALL accounting operations are ultimately debit/credit postings.
+
+Common voucher patterns (use account IDs from ENVIRONMENT):
+| Operation | Debit account | Credit account | VoucherType |
+|-----------|--------------|----------------|-------------|
+| Lønn (salary) | 5000 Lønn | 2930 Skyldig lønn | Lønnsbilag |
+| Skattetrekk | 2930 Skyldig lønn | 2600 Forskuddstrekk | Lønnsbilag |
+| Arbeidsgiveravgift | 5400 Arb.avg. | 2770 Skyldig arb.avg. | Lønnsbilag |
+| Avskrivning | 6010 Avskrivning | 1200 Maskiner | Manuelt bilag |
+| Periodisering (forskudd) | 1700 Forskuddsbetalt | 1920 Bank | Manuelt bilag |
+| Periodisering (kostnad) | 6800 Kontorrekvisita | 1700 Forskuddsbetalt | Manuelt bilag |
+| Bankgebyr | 7770 Bankgebyr | 1920 Bank | Manuelt bilag |
+| Ansattutlegg | 7140 Reisekostnad | 2910 Gjeld ansatte | Manuelt bilag |
+
+CRITICAL RULES for voucher postings:
+- Every posting MUST have "row" field (integer, starting at 1)
+- Postings MUST balance (sum of amounts = 0). Positive = debit, negative = credit.
+- Use account IDs from ENVIRONMENT, NOT account numbers directly.
+
+## Tier 3: Avskrivning (depreciation)
+Prompt: "Avskriv kontorutstyr til verdi 50000 kr med 20% lineær avskrivning"
+[
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Avskrivning kontorutstyr 20%", "voucherType": {"id": "VOUCHER_TYPE from ENVIRONMENT (Manuelt bilag)"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_6010_ID from ENVIRONMENT"}, "amount": 10000.0, "amountCurrency": 10000.0, "amountGross": 10000.0, "amountGrossCurrency": 10000.0, "currency": {"id": 1}, "row": 1, "description": "Avskrivning 20% av 50000"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_1200_ID from ENVIRONMENT"}, "amount": -10000.0, "amountCurrency": -10000.0, "amountGross": -10000.0, "amountGrossCurrency": -10000.0, "currency": {"id": 1}, "row": 2, "description": "Reduksjon anleggsmidler"}]}}
+]
+
+## Tier 3: Periodisering (prepaid expense)
+Prompt: "Forskuddsbetal 12000 kr for årlig forsikring, periodiser månedlig"
+Step 1 — Betaling: Voucher med 1700 (forskuddsbetalt) debit / 1920 (bank) kredit
+Step 2 — Månedlig kostnad: Voucher med 6800 (kostnad) debit / 1700 (forskuddsbetalt) kredit (1000 kr per mnd)
+[
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Forskuddsbetalt forsikring 12 mnd", "voucherType": {"id": "VOUCHER_TYPE from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_1700_ID from ENVIRONMENT"}, "amount": 12000.0, "amountCurrency": 12000.0, "amountGross": 12000.0, "amountGrossCurrency": 12000.0, "currency": {"id": 1}, "row": 1, "description": "Forskuddsbetalt forsikring"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_1920_ID from ENVIRONMENT"}, "amount": -12000.0, "amountCurrency": -12000.0, "amountGross": -12000.0, "amountGrossCurrency": -12000.0, "currency": {"id": 1}, "row": 2, "description": "Utbetaling fra bank"}]}},
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Periodisering forsikring mars", "voucherType": {"id": "VOUCHER_TYPE from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_6800_ID from ENVIRONMENT"}, "amount": 1000.0, "amountCurrency": 1000.0, "amountGross": 1000.0, "amountGrossCurrency": 1000.0, "currency": {"id": 1}, "row": 1, "description": "Forsikringskostnad mars"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_1700_ID from ENVIRONMENT"}, "amount": -1000.0, "amountCurrency": -1000.0, "amountGross": -1000.0, "amountGrossCurrency": -1000.0, "currency": {"id": 1}, "row": 2, "description": "Reduksjon forskuddsbetalt"}]}}
+]
+
+## Tier 3: Bankgebyr
+Prompt: "Registrer bankgebyr på 250 kr"
+[
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Bankgebyr mars 2026", "voucherType": {"id": "VOUCHER_TYPE from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_7770_ID from ENVIRONMENT"}, "amount": 250.0, "amountCurrency": 250.0, "amountGross": 250.0, "amountGrossCurrency": 250.0, "currency": {"id": 1}, "row": 1, "description": "Bankgebyr"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_1920_ID from ENVIRONMENT"}, "amount": -250.0, "amountCurrency": -250.0, "amountGross": -250.0, "amountGrossCurrency": -250.0, "currency": {"id": 1}, "row": 2, "description": "Fra bankkonto"}]}}
+]
+
+## Tier 3: Utvidet lønn (grunnlønn + skattetrekk + arbeidsgiveravgift)
+Prompt: "Kjør lønn for ansatt med grunnlønn 45000, skattetrekk 35%, og arbeidsgiveravgift 14.1%"
+[
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Lønnsbilag mars 2026", "voucherType": {"id": "VOUCHER_TYPE_SALARY_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_5000_ID from ENVIRONMENT"}, "amount": 45000.0, "amountCurrency": 45000.0, "amountGross": 45000.0, "amountGrossCurrency": 45000.0, "currency": {"id": 1}, "row": 1, "description": "Grunnlønn"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_2930_ID from ENVIRONMENT"}, "amount": -29250.0, "amountCurrency": -29250.0, "amountGross": -29250.0, "amountGrossCurrency": -29250.0, "currency": {"id": 1}, "row": 2, "description": "Netto lønn (etter skatt)"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_2600_ID from ENVIRONMENT"}, "amount": -15750.0, "amountCurrency": -15750.0, "amountGross": -15750.0, "amountGrossCurrency": -15750.0, "currency": {"id": 1}, "row": 3, "description": "Skattetrekk 35%"}]}},
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Arbeidsgiveravgift mars 2026", "voucherType": {"id": "VOUCHER_TYPE_SALARY_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_5400_ID from ENVIRONMENT"}, "amount": 6345.0, "amountCurrency": 6345.0, "amountGross": 6345.0, "amountGrossCurrency": 6345.0, "currency": {"id": 1}, "row": 1, "description": "Arbeidsgiveravgift 14.1%"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_2770_ID from ENVIRONMENT"}, "amount": -6345.0, "amountCurrency": -6345.0, "amountGross": -6345.0, "amountGrossCurrency": -6345.0, "currency": {"id": 1}, "row": 2, "description": "Skyldig arbeidsgiveravgift"}]}}
+]
+NOTE: Two vouchers — one for salary (lønn-skatt-netto), one for employer tax (AGA). Amounts MUST balance per voucher.
+
+## Update and delete — additional types
+### Update supplier
+Prompt: "Oppdater leverandør Staples med ny e-post innkjop@staples.no"
+[
+  {"method": "GET", "path": "/supplier", "params": {"name": "Staples", "fields": "*"}},
+  {"method": "PUT", "path": "/supplier/$PREV_0_ID", "body": {"_merge": "$MERGE_PREV_0", "email": "innkjop@staples.no"}}
+]
+
+### Delete project
+Prompt: "Slett prosjektet Gamma"
+[
+  {"method": "GET", "path": "/project", "params": {"name": "Gamma", "fields": "id"}},
+  {"method": "DELETE", "path": "/project/$PREV_0_ID"}
+]
+NOTE: DELETE /project may return 422 if project has orders/vouchers. Cannot force-delete.
+
+### Delete department
+Prompt: "Slett avdelingen Logistikk"
+[
+  {"method": "GET", "path": "/department", "params": {"name": "Logistikk", "fields": "id"}},
+  {"method": "DELETE", "path": "/department/$PREV_0_ID"}
+]
 """
 
 
@@ -1133,6 +1205,28 @@ async def solve(request: Request):
                         env_info["account_2700_id"] = acc["id"]
                     elif acc_num == "3000":
                         env_info["account_3000_id"] = acc["id"]
+                    elif acc_num == "5000":
+                        env_info["account_5000_id"] = acc["id"]
+                    elif acc_num == "2930":
+                        env_info["account_2930_id"] = acc["id"]
+                    elif acc_num == "2600":
+                        env_info["account_2600_id"] = acc["id"]
+                    elif acc_num == "2770":
+                        env_info["account_2770_id"] = acc["id"]
+                    elif acc_num == "5400":
+                        env_info["account_5400_id"] = acc["id"]
+                    elif acc_num == "6010":
+                        env_info["account_6010_id"] = acc["id"]
+                    elif acc_num == "1200":
+                        env_info["account_1200_id"] = acc["id"]
+                    elif acc_num == "1700":
+                        env_info["account_1700_id"] = acc["id"]
+                    elif acc_num == "7140":
+                        env_info["account_7140_id"] = acc["id"]
+                    elif acc_num == "7770":
+                        env_info["account_7770_id"] = acc["id"]
+                    elif acc_num == "2910":
+                        env_info["account_2910_id"] = acc["id"]
         except Exception:
             pass
 
@@ -1168,6 +1262,17 @@ async def solve(request: Request):
 - account_6500_id (Kontortjenester): {env_info.get('account_6500_id', 'unknown')}
 - account_6800_id (Kontorrekvisita): {env_info.get('account_6800_id', 'unknown')}
 - account_7100_id (Kontortjenester 2): {env_info.get('account_7100_id', 'unknown')}
+- account_5000_id (Lønn til ansatte): {env_info.get('account_5000_id', 'unknown')}
+- account_2930_id (Skyldig lønn): {env_info.get('account_2930_id', 'unknown')}
+- account_2600_id (Forskuddstrekk/skatt): {env_info.get('account_2600_id', 'unknown')}
+- account_2770_id (Skyldig arbeidsgiveravgift): {env_info.get('account_2770_id', 'unknown')}
+- account_5400_id (Arbeidsgiveravgift kostnad): {env_info.get('account_5400_id', 'unknown')}
+- account_6010_id (Avskrivning maskiner): {env_info.get('account_6010_id', 'unknown')}
+- account_1200_id (Maskiner og anlegg): {env_info.get('account_1200_id', 'unknown')}
+- account_1700_id (Forskuddsbetalte kostnader): {env_info.get('account_1700_id', 'unknown')}
+- account_7140_id (Reisekostnad): {env_info.get('account_7140_id', 'unknown')}
+- account_7770_id (Bank- og kortgebyrer): {env_info.get('account_7770_id', 'unknown')}
+- account_2910_id (Gjeld til ansatte): {env_info.get('account_2910_id', 'unknown')}
 
 IMPORTANT: Each account ID above is UNIQUE. Use the CORRECT account for each posting. For supplier invoices, the expense account depends on what the prompt says (e.g. "kontorrekvisita" = account_6800_id, "kontortjenester" = account_6500_id or account_7100_id).
 
