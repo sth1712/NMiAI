@@ -272,34 +272,23 @@ Common accounts: 1920=Bankinnskudd, 2400=Leverandørgjeld, 2700=Utg MVA høy, 27
 ### GET /ledger/account
 Search by number: ?numberFrom=7100&numberTo=7100&fields=id,number,name
 
-## 12. SUPPLIER INVOICE (leverandørfaktura) — CRITICAL FOR TIER 2
+## 12. SUPPLIER INVOICE (leverandørfaktura) — USE VOUCHER!
 
-### POST /supplierInvoice
-For registering invoices FROM suppliers. This is what "registrer leverandørfaktura" means!
-Required: invoiceNumber, invoiceDate, supplier.id, invoiceDueDate, currency.id, voucher (with postings)
+CRITICAL: POST /supplierInvoice returns 500 — DO NOT USE IT!
+Instead, register supplier invoices as a voucher with voucherType "Leverandørfaktura".
 
-The voucher object MUST contain postings with row field and supplier.id on EACH posting.
+### How to register a supplier invoice (as voucher):
+For an invoice of 18000 NOK inkl MVA (14400 netto + 3600 MVA 25%):
+1. GET /supplier to find the supplier ID
+2. POST /ledger/voucher with:
+- voucherType: voucher_type_supplier_id from ENVIRONMENT
+- 3 postings that MUST balance to 0:
+  1. Debit expense account (e.g. 6800 Kontorrekvisita): +14400 (netto beløp)
+  2. Debit MVA account (2710 Inngående MVA): +3600 (25% av netto)
+  3. Credit supplier account (2400 Leverandørgjeld): -18000 (totalbeløp inkl MVA)
 
-Example for supplier invoice of 18000 NOK inkl MVA (14400 + 3600 MVA):
-{
-  "invoiceNumber": "INV-2026-001",
-  "invoiceDate": "2026-03-20",
-  "supplier": {"id": SUPPLIER_ID},
-  "invoiceDueDate": "2026-04-20",
-  "currency": {"id": 1},
-  "voucher": {
-    "date": "2026-03-20",
-    "description": "Leverandørfaktura INV-2026-001",
-    "voucherType": {"id": VOUCHER_TYPE_LEVERANDOR_ID},
-    "postings": [
-      {"date": "2026-03-20", "account": {"id": EXPENSE_ACCOUNT_ID}, "amount": 14400.0, "amountCurrency": 14400.0, "amountGross": 14400.0, "amountGrossCurrency": 14400.0, "currency": {"id": 1}, "row": 1, "supplier": {"id": SUPPLIER_ID}, "description": "Kostnad"},
-      {"date": "2026-03-20", "account": {"id": MVA_INN_ACCOUNT_ID}, "amount": 3600.0, "amountCurrency": 3600.0, "amountGross": 3600.0, "amountGrossCurrency": 3600.0, "currency": {"id": 1}, "row": 2, "supplier": {"id": SUPPLIER_ID}, "description": "Inngående MVA"},
-      {"date": "2026-03-20", "account": {"id": LEVERANDORGJELD_ACCOUNT_ID}, "amount": -18000.0, "amountCurrency": -18000.0, "amountGross": -18000.0, "amountGrossCurrency": -18000.0, "currency": {"id": 1}, "row": 3, "supplier": {"id": SUPPLIER_ID}, "description": "Leverandørgjeld"}
-    ]
-  }
-}
-
-IMPORTANT: Use account IDs and voucher_type_supplier_id from ENVIRONMENT section when available. Only call GET /ledger/account if the account is not in ENVIRONMENT.
+CRITICAL: supplier.id MUST be included on EVERY posting! Without it: "Leverandør mangler" error.
+Use account IDs from ENVIRONMENT. Each posting MUST have "row" field.
 
 ## 13. TIMESHEET
 
@@ -460,13 +449,15 @@ Prompt: "Opprett prosjekt Omega med ansatt Kari som prosjektleder"
 NOTE: 4 calls instead of 6! DEPARTMENT_ID and COMPANY_ID from ENVIRONMENT.
 
 ## Tier 2: Supplier invoice (uses ENVIRONMENT account IDs)
-### Register supplier invoice
-Prompt: "Registrer leverandørfaktura INV-001 fra Staples på 12500 NOK inkl MVA (10000 + 2500 MVA) for kontorrekvisita"
+### Register supplier invoice (as voucher — /supplierInvoice returns 500!)
+Prompt: "Registrer leverandørfaktura INV-001 fra Staples på 12500 NOK inkl MVA for kontorrekvisita"
+Step 1: Find the supplier (GET /supplier?name=Staples)
+Step 2: Create voucher with supplier.id on EVERY posting
 [
-  {"method": "GET", "path": "/supplier", "params": {"name": "Staples", "fields": "id,name"}},
-  {"method": "POST", "path": "/supplierInvoice", "body": {"invoiceNumber": "INV-001", "invoiceDate": "2026-03-20", "supplier": {"id": "$PREV_0_ID"}, "invoiceDueDate": "2026-04-20", "currency": {"id": 1}, "voucher": {"date": "2026-03-20", "description": "Leverandørfaktura INV-001", "voucherType": {"id": "VOUCHER_TYPE_SUPPLIER_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_6800_ID from ENVIRONMENT"}, "amount": 10000.0, "amountCurrency": 10000.0, "amountGross": 10000.0, "amountGrossCurrency": 10000.0, "currency": {"id": 1}, "row": 1, "supplier": {"id": "$PREV_0_ID"}, "description": "Kontorrekvisita"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_2710_ID from ENVIRONMENT"}, "amount": 2500.0, "amountCurrency": 2500.0, "amountGross": 2500.0, "amountGrossCurrency": 2500.0, "currency": {"id": 1}, "row": 2, "supplier": {"id": "$PREV_0_ID"}, "description": "Inngående MVA"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_2400_ID from ENVIRONMENT"}, "amount": -12500.0, "amountCurrency": -12500.0, "amountGross": -12500.0, "amountGrossCurrency": -12500.0, "currency": {"id": 1}, "row": 3, "supplier": {"id": "$PREV_0_ID"}, "description": "Leverandørgjeld"}]}}}
+  {"method": "GET", "path": "/supplier", "params": {"name": "Staples", "fields": "id"}},
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Leverandørfaktura INV-001 fra Staples", "voucherType": {"id": "VOUCHER_TYPE_SUPPLIER_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_6800_ID from ENVIRONMENT"}, "amount": 10000.0, "amountCurrency": 10000.0, "amountGross": 10000.0, "amountGrossCurrency": 10000.0, "currency": {"id": 1}, "row": 1, "supplier": {"id": "$PREV_0_ID"}, "description": "Kontorrekvisita"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_2710_ID from ENVIRONMENT"}, "amount": 2500.0, "amountCurrency": 2500.0, "amountGross": 2500.0, "amountGrossCurrency": 2500.0, "currency": {"id": 1}, "row": 2, "supplier": {"id": "$PREV_0_ID"}, "description": "Inngående MVA 25%"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_2400_ID from ENVIRONMENT"}, "amount": -12500.0, "amountCurrency": -12500.0, "amountGross": -12500.0, "amountGrossCurrency": -12500.0, "currency": {"id": 1}, "row": 3, "supplier": {"id": "$PREV_0_ID"}, "description": "Leverandørgjeld"}]}}
 ]
-NOTE: Use account IDs and voucher_type_supplier_id from ENVIRONMENT. Postings MUST have "row" field and balance to 0.
+CRITICAL: supplier.id MUST be on EVERY posting! Without it you get "Leverandør mangler" error. Use POST /ledger/voucher, NOT /supplierInvoice (500).
 
 ## Tier 2: Timesheet
 ### Register hours on timesheet
