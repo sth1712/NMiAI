@@ -332,6 +332,10 @@ CRITICAL: Each posting MUST have the "row" field (integer, starting at 1)! Witho
 Each posting requires: date, account.id, amount, amountCurrency, amountGross, amountGrossCurrency, currency.id, row, description
 Postings MUST balance (sum of amounts = 0). Positive = debit, negative = credit.
 
+CRITICAL: The debit posting and credit posting MUST use DIFFERENT accounts! NEVER use the same account.id for both rows.
+When you look up two accounts with separate GET calls, use $PREV_0_ID for debit and $PREV_1_ID for credit — they are DIFFERENT IDs!
+Example: If GET call 0 returns account 6010 and GET call 1 returns account 1200, use $PREV_0_ID (6010) for debit and $PREV_1_ID (1200) for credit.
+
 ## ACCOUNTING DIMENSIONS (fri regnskapsdimensjon)
 The API HAS dedicated dimension endpoints:
 
@@ -1142,6 +1146,32 @@ def execute_api_calls(calls, base_url, session_token, original_prompt=""):
                         merged[k] = v
                     body = merged
                     logger.info(f"  Merged PUT body with PREV_{idx} ({len(merged)} fields)")
+
+        # VALIDATION: Fix voucher postings where all rows use the same account
+        if method == "POST" and "/ledger/voucher" in path and body.get("postings"):
+            postings = body["postings"]
+            account_ids = [p.get("account", {}).get("id") for p in postings if isinstance(p, dict)]
+            if len(set(account_ids)) == 1 and len(account_ids) >= 2:
+                # All postings use the same account — this is wrong!
+                # Try to find different account IDs from previous GET results
+                available_account_ids = []
+                for r_idx, r in enumerate(results):
+                    if r and isinstance(r, dict):
+                        if "value" in r and isinstance(r["value"], dict) and "number" in r["value"]:
+                            available_account_ids.append(r["value"].get("id"))
+                        elif "values" in r and r["values"] and isinstance(r["values"][0], dict) and "number" in r["values"][0]:
+                            available_account_ids.append(r["values"][0].get("id"))
+                # Remove duplicates while preserving order
+                unique_accounts = list(dict.fromkeys(available_account_ids))
+                if len(unique_accounts) >= 2:
+                    # Assign different accounts to different postings
+                    for p_idx, posting in enumerate(postings):
+                        if p_idx < len(unique_accounts):
+                            old_id = posting.get("account", {}).get("id")
+                            new_id = unique_accounts[p_idx]
+                            if old_id != new_id:
+                                posting["account"]["id"] = new_id
+                                logger.info(f"  Fixed posting {p_idx}: account {old_id} → {new_id}")
 
         url = f"{base_url}{path}"
         logger.info(f"Call {i}: {method} {url}")
