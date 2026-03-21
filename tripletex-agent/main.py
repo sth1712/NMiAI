@@ -899,6 +899,10 @@ def resolve_placeholders(value, results):
                     obj = results[idx]["values"][0]
                 if obj and field_name in obj:
                     field_val = obj[field_name]
+                    # If field value is a dict with "id", extract just the id
+                    # This handles cases like customer: {"id": 123, "url": "..."} → 123
+                    if isinstance(field_val, dict) and "id" in field_val:
+                        field_val = field_val["id"]
                     if value == field_match.group(0):
                         return field_val
                     return value.replace(field_match.group(0), str(field_val))
