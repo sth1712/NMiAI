@@ -384,7 +384,8 @@ After creating asset, register depreciation via POST /ledger/voucher (6010/1200)
 # PATTERNS
 
 ## Search for existing entities
-Use the fields parameter to minimize response size:
+Use the fields parameter to minimize response size.
+CRITICAL: For nested fields, use PARENTHESES not dots! Example: fields=id,amount,customer(id,name) — NOT customer.id!
 - GET /employee?firstName=X&lastName=Y&fields=id,firstName,lastName
 - GET /customer?name=X&fields=id,name
 - GET /product?name=X&fields=id,name
@@ -572,6 +573,15 @@ Prompt: "Lag kreditnota for faktura til Acme AS for 'Consulting' (15000 NOK eksk
   {"method": "PUT", "path": "/invoice/$PREV_0_ID/:createCreditNote", "params": {"creditNoteEmail": "", "comment": "Kreditnota"}}
 ]
 NOTE: Credit note is created via PUT /:createCreditNote on the EXISTING invoice. Only 2 calls.
+
+## Tier 2: Purring / Reminder charge (purregebyr)
+Prompt: "Kunden har en forfalt faktura. Registrer purregebyr 55 NOK. Debet kundefordring (1500), kredit purregebyr-inntekt (3400). Lag også purrefaktura og registrer betaling."
+[
+  {"method": "GET", "path": "/invoice", "params": {"invoiceDateFrom": "2020-01-01", "invoiceDateTo": "2030-12-31", "fields": "id,amount,amountOutstanding,customer(id,name)"}},
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Purregebyr", "voucherType": {"id": "VOUCHER_TYPE_MANUAL_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_1500_ID from ENVIRONMENT"}, "amount": 55.0, "amountCurrency": 55.0, "amountGross": 55.0, "amountGrossCurrency": 55.0, "currency": {"id": 1}, "row": 1, "description": "Kundefordring purregebyr"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_3400_ID from ENVIRONMENT"}, "amount": -55.0, "amountCurrency": -55.0, "amountGross": -55.0, "amountGrossCurrency": -55.0, "currency": {"id": 1}, "row": 2, "description": "Purregebyr-inntekt"}]}},
+  {"method": "PUT", "path": "/invoice/$PREV_0_ID/:createReminder", "params": {"date": "2026-03-20", "sendToCustomer": "true"}}
+]
+NOTE: Use PUT /:createReminder on the overdue invoice. Use account 3400 (purregebyr-inntekt) from ENVIRONMENT.
 
 ## Misc: Delete entities
 ### Delete customer/product/supplier
@@ -920,7 +930,7 @@ def execute_api_calls(calls, base_url, session_token, original_prompt=""):
             elif method == "PUT":
                 # Special PUT endpoints use query params instead of body
                 # e.g. /order/{id}/:invoice, /invoice/{id}/:payment, /invoice/{id}/:createCreditNote
-                if any(action in path for action in ['/:invoice', '/:payment', '/:createCreditNote', '/:send']):
+                if any(action in path for action in ['/:invoice', '/:payment', '/:createCreditNote', '/:createReminder', '/:send']):
                     resp = http_requests.put(url, auth=auth, params=params, timeout=30)
                 else:
                     resp = http_requests.put(url, auth=auth, json=body, timeout=30)
@@ -1131,7 +1141,7 @@ IMPORTANT: Return ONLY a valid JSON array. No markdown, no explanation, no comme
                     resp = http_requests.post(url, auth=auth, json=body, timeout=30)
                 elif method == "PUT":
                     if any(action in path for action in
-                           ['/:invoice', '/:payment', '/:createCreditNote', '/:send']):
+                           ['/:invoice', '/:payment', '/:createCreditNote', '/:createReminder', '/:send']):
                         resp = http_requests.put(url, auth=auth, params=params, timeout=30)
                     else:
                         resp = http_requests.put(url, auth=auth, json=body, timeout=30)
@@ -1417,6 +1427,8 @@ async def solve(request: Request):
                         env_info["account_7770_id"] = acc["id"]
                     elif acc_num == "2910":
                         env_info["account_2910_id"] = acc["id"]
+                    elif acc_num == "3400":
+                        env_info["account_3400_id"] = acc["id"]
         except Exception:
             pass
 
@@ -1465,6 +1477,7 @@ Travel expense cost categories (USE THESE IDs, not hardcoded ones!):
 - account_2700_id (Utgående MVA): {env_info.get('account_2700_id', 'unknown')}
 - account_2710_id (Inngående MVA): {env_info.get('account_2710_id', 'unknown')}
 - account_3000_id (Salgsinntekt): {env_info.get('account_3000_id', 'unknown')}
+- account_3400_id (Purregebyr/inkassoinntekt): {env_info.get('account_3400_id', 'unknown')}
 - account_6500_id (Kontortjenester): {env_info.get('account_6500_id', 'unknown')}
 - account_6800_id (Kontorrekvisita): {env_info.get('account_6800_id', 'unknown')}
 - account_7100_id (Kontortjenester 2): {env_info.get('account_7100_id', 'unknown')}
