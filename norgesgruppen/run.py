@@ -46,7 +46,28 @@ def load_resnet_onnx(onnx_path):
 
 
 def load_refs(base_dir):
-    """Last referansedata — støtter både .npy og .json format."""
+    """Last referansedata — støtter individuelle (top-K) og gjennomsnittlige (legacy) format."""
+    # Prioriter individuelle embeddings (for top-K voting)
+    refs_indiv_json = base_dir / "refs_individual.json"
+    ref_indiv_npy = base_dir / "ref_embeddings_individual.npy"
+    ref_labels_npy = base_dir / "ref_labels_individual.npy"
+
+    # Forsøk individuelle først (JSON eller npy)
+    if refs_indiv_json.exists():
+        with open(str(refs_indiv_json)) as f:
+            data = json.load(f)
+        ref_embs = np.frombuffer(
+            base64.b64decode(data["embeddings_b64"]), dtype=np.float32
+        ).reshape(data["shape"])
+        ref_cat_ids = data["labels"]
+        return ref_embs, ref_cat_ids
+
+    if ref_indiv_npy.exists() and ref_labels_npy.exists():
+        ref_embs = np.load(str(ref_indiv_npy))
+        ref_cat_ids = np.load(str(ref_labels_npy)).tolist()
+        return ref_embs, ref_cat_ids
+
+    # Fallback til legacy format (gjennomsnittlige)
     refs_json = base_dir / "refs.json"
     ref_npy = base_dir / "ref_embeddings.npy"
     ref_ids_path = base_dir / "ref_cat_ids.json"
@@ -263,18 +284,38 @@ def main():
 
         all_embs = np.concatenate(all_embs, axis=0)
 
-        # Cosine similarity
-        sims = all_embs @ ref_embs.T
-        best_ref_idx = sims.argmax(axis=1)
-        best_sims = sims[np.arange(len(sims)), best_ref_idx]
+        # Cosine similarity → Top-K weighted voting med temperature scaling
+        sims = all_embs @ ref_embs.T  # (n_crops, n_refs)
+        K = min(5, sims.shape[1])
+        TEMPERATURE = 0.07
+        MIN_VOTE_THRESHOLD = 0.3
 
         for j in range(len(crops)):
             x1, y1, x2, y2 = boxes_data[j]
             conf = yolo_confs[j]
-            resnet_cat = ref_cat_ids[int(best_ref_idx[j])]
-            resnet_sim = float(best_sims[j])
 
-            category_id = resnet_cat if resnet_sim > 0.5 else yolo_cats[j]
+            sim_row = sims[j]
+            top_k_idx = np.argpartition(sim_row, -K)[-K:]
+            top_k_sims = sim_row[top_k_idx]
+            top_k_labels = np.array([ref_cat_ids[int(idx)] for idx in top_k_idx])
+
+            # Temperature-scaled softmax voting
+            scaled = top_k_sims / TEMPERATURE
+            scaled = scaled - scaled.max()  # numerical stability
+            weights = np.exp(scaled)
+            weights = weights / weights.sum()
+
+            # Aggregate votes per category
+            vote_scores = {}
+            for label, w in zip(top_k_labels, weights):
+                label = int(label)
+                vote_scores[label] = vote_scores.get(label, 0.0) + float(w)
+
+            best_label = max(vote_scores, key=vote_scores.get)
+            best_vote = vote_scores[best_label]
+
+            # Use ResNet category only if voting confidence is sufficient
+            category_id = best_label if best_vote > MIN_VOTE_THRESHOLD else yolo_cats[j]
 
             predictions.append({
                 "image_id": image_id,
