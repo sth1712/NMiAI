@@ -266,12 +266,24 @@ CRITICAL: Each posting MUST have the "row" field (integer, starting at 1)! Witho
 Each posting requires: date, account.id, amount, amountCurrency, amountGross, amountGrossCurrency, currency.id, row, description
 Postings MUST balance (sum of amounts = 0). Positive = debit, negative = credit.
 
-NOTE on "fri regnskapsdimensjon" / "free accounting dimension" tasks:
-The API does NOT have a /dimension endpoint. When a task asks to create a "fri regnskapsdimensjon" with values:
-1. Create a PROJECT for each dimension value (POST /project with name=value, number=value)
-2. Then create the voucher posting with project.id on the posting to link it
-This maps the concept of "dimension values" to projects, which IS supported on postings.
-Even if this is not perfect, ALWAYS create the voucher/bilag part of the task — partial credit is better than 0.
+## ACCOUNTING DIMENSIONS (fri regnskapsdimensjon)
+The API HAS dedicated dimension endpoints:
+
+### POST /ledger/accountingDimensionName
+Create a dimension (e.g. "Region", "Avdeling", "Prosjekttype"):
+Required: name
+Example: {"name": "Region"}
+
+### POST /ledger/accountingDimensionValue
+Create dimension values (e.g. "Nord", "Sør", "Vest"):
+Required: name, dimensionName.id (from the POST above)
+Example: {"name": "Nord", "dimensionName": {"id": "$PREV_0_ID"}}
+
+### GET /ledger/accountingDimensionName/search — find existing dimensions
+### GET /ledger/accountingDimensionValue/search — find existing dimension values
+
+After creating dimensions, you can link them to voucher postings.
+ALWAYS also create the voucher/bilag part of the task — partial credit is better than 0.
 
 Common accounts: 1920=Bankinnskudd, 2400=Leverandørgjeld, 2700=Utg MVA høy, 2710=Inng MVA høy, 3000=Salgsinntekt, 6800=Kontorrekvisita, 6900=Telefon, 7100=Kontortjenester
 
@@ -306,11 +318,63 @@ Optional: project.id (for project-specific hours), comment
 For "innlogget bruker" / "logged in user" / "current user": use employee_id from ENVIRONMENT directly — do NOT call GET /token/session or /employee/me!
 activity.id: use the first activity_id from ENVIRONMENT (e.g. "Fakturerbart arbeid" or "Administrasjon")
 
-## 14. OTHER ENDPOINTS
+## 14. INCOMING INVOICE (inngående faktura)
+
+### POST /incomingInvoice
+Alternative to supplierInvoice — may work when /supplierInvoice gives 500.
+After creating: POST /incomingInvoice/{voucherId}/addPayment to register payment.
+
+## 15. VOUCHER OPERATIONS
+
+### PUT /ledger/voucher/{id}/:reverse
+Reverse an existing voucher — creates a counter-voucher that cancels out the original.
+Use this for ERROR CORRECTION instead of creating manual correction vouchers!
+Much simpler than manual corrections: just find the wrong voucher and reverse it.
+
+### GET, POST, DELETE /ledger/voucher/openingBalance
+For opening balance (åpningsbalanse) tasks. Dedicated endpoint!
+POST creates opening balance entries. DELETE removes them.
+
+## 16. TRAVEL EXPENSE — ADDITIONAL FEATURES
+
+### POST /travelExpense/mileageAllowance
+For "kjøregodtgjørelse" / "mileage allowance" / "Kilometergodtgjørelse":
+Required: travelExpense.id, rateType.id, rateCategory.id, date, departureLocation, destination, km
+Use GET /travelExpense/rateCategory to find available rate categories.
+
+### POST /travelExpense/perDiemCompensation
+For "diett" / "dagpenger" / "per diem" / "Tagegeld":
+Required: travelExpense.id, rateType.id, rateCategory.id, countryCode, overnightAccommodation, location, date
+
+### PUT /travelExpense/:createVouchers
+Create accounting vouchers from an approved travel expense.
+
+## 17. ASSET (anleggsmidler)
+
+### POST /asset
+For registering fixed assets (anleggsmidler):
+Required: name, acquisitionCost, acquisitionDate
+Optional: depreciationAccountId, lifetimeInMonths, incomingBalance, accumulatedDepreciation
+After creating asset, register depreciation via POST /ledger/voucher (6010/1200).
+
+## 18. YEAR-END / ANNUAL ACCOUNTS
+
+### GET /ledger/annualAccount — annual accounts data
+### GET /ledger/closeGroup — close groups for period closing
+### PUT /ledger/posting/:closePostings — close postings for period
+### GET /saft/exportSAFT — export SAF-T file
+### POST /saft/importSAFT — import SAF-T file
+
+## 19. OTHER ENDPOINTS
 - GET /ledger/account — 500+ accounts, standard Norwegian chart
 - GET /ledger/posting?dateFrom=X&dateTo=Y — query postings
+- GET /ledger/posting/openPost — open postings (utestående poster)
 - GET /inventory — warehouse/stock info
 - GET /purchaseOrder — purchase orders
+- GET /balanceSheet — balance sheet (saldobalanse)
+- GET /resultbudget — result budget
+- GET /currency/{id}/rate — exchange rates
+- GET /token/session/>whoAmI — current user info (NOTE: path uses > not /)
 
 ---
 
@@ -599,6 +663,39 @@ Prompt: "Slett avdelingen Logistikk"
   {"method": "DELETE", "path": "/department/$PREV_0_ID"}
 ]
 NOTE: Use "query" parameter (not "name") for department search — it's more robust.
+
+## Tier 3: Accounting dimensions (fri regnskapsdimensjon)
+Prompt: "Opprett en fri regnskapsdimensjon kalt 'Region' med verdiene 'Nord', 'Sør' og 'Vest'. Bokfør 15000 kr på konto 6800 fordelt på region Nord."
+[
+  {"method": "POST", "path": "/ledger/accountingDimensionName", "body": {"name": "Region"}},
+  {"method": "POST", "path": "/ledger/accountingDimensionValue", "body": {"name": "Nord", "dimensionName": {"id": "$PREV_0_ID"}}},
+  {"method": "POST", "path": "/ledger/accountingDimensionValue", "body": {"name": "Sør", "dimensionName": {"id": "$PREV_0_ID"}}},
+  {"method": "POST", "path": "/ledger/accountingDimensionValue", "body": {"name": "Vest", "dimensionName": {"id": "$PREV_0_ID"}}},
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Bokføring kontorrekvisita for Region Nord", "voucherType": {"id": "VOUCHER_TYPE_MANUAL_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_6800_ID from ENVIRONMENT"}, "amount": 15000.0, "amountCurrency": 15000.0, "amountGross": 15000.0, "amountGrossCurrency": 15000.0, "currency": {"id": 1}, "row": 1, "description": "Kontorrekvisita Region Nord"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_1920_ID from ENVIRONMENT"}, "amount": -15000.0, "amountCurrency": -15000.0, "amountGross": -15000.0, "amountGrossCurrency": -15000.0, "currency": {"id": 1}, "row": 2, "description": "Betalt fra bank"}]}}
+]
+NOTE: Use /ledger/accountingDimensionName + /ledger/accountingDimensionValue for dimensions. These are REAL API endpoints!
+
+## Tier 3: Reverse existing voucher (feilretting alternativ)
+Prompt: "Reverser bilag nr 5 — det ble ført feil"
+[
+  {"method": "PUT", "path": "/ledger/voucher/5/:reverse", "params": {"date": "2026-03-20"}}
+]
+NOTE: PUT /:reverse creates a counter-voucher automatically. Much simpler than manual correction! Only 1 call.
+
+## Tier 3: Opening balance (åpningsbalanse)
+Prompt: "Sett åpningsbalanse med 500000 kr på bankkonto og 500000 kr i egenkapital"
+[
+  {"method": "POST", "path": "/ledger/voucher/openingBalance", "body": {"date": "2026-01-01", "description": "Åpningsbalanse", "postings": [{"account": {"id": "ACCOUNT_1920_ID from ENVIRONMENT"}, "amount": 500000.0, "amountCurrency": 500000.0, "amountGross": 500000.0, "amountGrossCurrency": 500000.0, "currency": {"id": 1}, "row": 1, "description": "Bankinnskudd"}, {"account": {"number": 2050}, "amount": -500000.0, "amountCurrency": -500000.0, "amountGross": -500000.0, "amountGrossCurrency": -500000.0, "currency": {"id": 1}, "row": 2, "description": "Egenkapital"}]}}
+]
+NOTE: Use the dedicated /ledger/voucher/openingBalance endpoint. POST creates, DELETE removes existing.
+
+## Tier 2: Mileage allowance (kjøregodtgjørelse)
+Prompt: "Registrer kjøregodtgjørelse for 150 km fra Oslo til Drammen"
+[
+  {"method": "POST", "path": "/travelExpense", "body": {"employee": {"id": "EMPLOYEE_ID from ENVIRONMENT"}, "title": "Kjøring Oslo-Drammen", "date": "2026-03-20"}},
+  {"method": "GET", "path": "/travelExpense/rateCategory", "params": {"fields": "id,name"}},
+  {"method": "POST", "path": "/travelExpense/mileageAllowance", "body": {"travelExpense": {"id": "$PREV_0_ID"}, "rateCategory": {"id": "$PREV_1_ID"}, "date": "2026-03-20", "departureLocation": "Oslo", "destination": "Drammen", "km": 150}}
+]
 """
 
 
@@ -1320,6 +1417,7 @@ async def solve(request: Request):
 
 ## ENVIRONMENT (pre-fetched — use these directly, do NOT call GET for them)
 - company_id: {env_info.get('company_id', 'unknown')}
+- employee_id (logged-in user): {env_info.get('employee_id', 'unknown')}
 - department_id: {env_info.get('department_id', 'unknown')} (name: "{env_info.get('department_name', '')}")
 - bank_account: {'configured' if env_info.get('bank_configured') else 'unknown'}
 - invoice_payment_type_bank_id: {env_info.get('payment_type_bank_id', 'unknown')}
