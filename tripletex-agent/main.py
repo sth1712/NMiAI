@@ -461,8 +461,33 @@ When a task involves foreign currency:
 - GET /currency to find currency ID (NOK=1, SEK=2, DKK=3, USD=4, EUR=5, GBP=6)
 - Use currency.id in product, invoice, or voucher postings
 - GET /currency/{fromCurrencyID}/exchangeRate for exchange rates
+Example: For a EUR invoice, use currency: {"id": 5} in the order/product.
 
-## 22. OTHER ENDPOINTS
+## 22. BANK RECONCILIATION (bankavstemming)
+
+For bank reconciliation tasks:
+1. Compare bank balance vs book balance (GET /balanceSheet or GET /ledger/posting)
+2. Register any differences as vouchers (bankgebyr, uregistrerte innbetalinger, etc.)
+3. Each difference = one POST /ledger/voucher with correct accounts
+
+If the task mentions a CSV/bank statement file:
+- The file is attached as base64 — read it to identify transactions
+- Register each unmatched transaction as a voucher
+- Use account 1920 (bank) for all bank-side entries
+
+## 23. YEAR-END / PERIOD CLOSING (årsoppgjør)
+
+For period closing tasks:
+1. GET /ledger/accountingPeriod to find the period
+2. GET /ledger/closeGroup?dateFrom=X&dateTo=Y to find close groups
+3. Income/expense accounts should be closed to equity (account 8800/2050)
+4. Register closing entries as vouchers
+
+For annual accounts:
+- GET /ledger/annualAccount — shows configured accounting years
+- Closing journal entries: debit all income accounts, credit all expense accounts, net to equity
+
+## 24. OTHER ENDPOINTS
 - GET /ledger/account — 500+ accounts, standard Norwegian chart
 - GET /ledger/posting?dateFrom=X&dateTo=Y — query postings
 - GET /ledger/posting/openPost — open postings (utestående poster)
