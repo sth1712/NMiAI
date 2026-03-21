@@ -277,9 +277,10 @@ Example: {"dimensionName": "Region"}
 
 ### POST /ledger/accountingDimensionValue
 Create dimension values (e.g. "Nord", "Sør", "Vest"):
-CRITICAL: The field is called "dimensionValueName" (NOT "name"!)
-Required: dimensionValueName, accountingDimensionName.id (from the POST above)
-Example: {"dimensionValueName": "Nord", "accountingDimensionName": {"id": "$PREV_0_ID"}}
+CRITICAL: The field is called "displayName" (NOT "name" or "dimensionValueName"!)
+Required: displayName
+Optional: dimensionIndex (integer — set to match the dimension's index to link them)
+Example: {"displayName": "Nord"}
 
 ### GET /ledger/accountingDimensionName/search — find existing dimensions
 ### GET /ledger/accountingDimensionValue/search — find existing dimension values
@@ -670,9 +671,9 @@ NOTE: Use "query" parameter (not "name") for department search — it's more rob
 Prompt: "Opprett en fri regnskapsdimensjon kalt 'Region' med verdiene 'Nord', 'Sør' og 'Vest'. Bokfør 15000 kr på konto 6800 fordelt på region Nord."
 [
   {"method": "POST", "path": "/ledger/accountingDimensionName", "body": {"dimensionName": "Region"}},
-  {"method": "POST", "path": "/ledger/accountingDimensionValue", "body": {"dimensionValueName": "Nord", "accountingDimensionName": {"id": "$PREV_0_ID"}}},
-  {"method": "POST", "path": "/ledger/accountingDimensionValue", "body": {"dimensionValueName": "Sør", "accountingDimensionName": {"id": "$PREV_0_ID"}}},
-  {"method": "POST", "path": "/ledger/accountingDimensionValue", "body": {"dimensionValueName": "Vest", "accountingDimensionName": {"id": "$PREV_0_ID"}}},
+  {"method": "POST", "path": "/ledger/accountingDimensionValue", "body": {"displayName": "Nord"}},
+  {"method": "POST", "path": "/ledger/accountingDimensionValue", "body": {"displayName": "Sør"}},
+  {"method": "POST", "path": "/ledger/accountingDimensionValue", "body": {"displayName": "Vest"}},
   {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Bokføring kontorrekvisita for Region Nord", "voucherType": {"id": "VOUCHER_TYPE_MANUAL_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "ACCOUNT_6800_ID from ENVIRONMENT"}, "amount": 15000.0, "amountCurrency": 15000.0, "amountGross": 15000.0, "amountGrossCurrency": 15000.0, "currency": {"id": 1}, "row": 1, "description": "Kontorrekvisita Region Nord"}, {"date": "2026-03-20", "account": {"id": "ACCOUNT_1920_ID from ENVIRONMENT"}, "amount": -15000.0, "amountCurrency": -15000.0, "amountGross": -15000.0, "amountGrossCurrency": -15000.0, "currency": {"id": 1}, "row": 2, "description": "Betalt fra bank"}]}}
 ]
 NOTE: Use /ledger/accountingDimensionName + /ledger/accountingDimensionValue for dimensions. These are REAL API endpoints!
@@ -919,7 +920,7 @@ def execute_api_calls(calls, base_url, session_token, original_prompt=""):
             elif method == "PUT":
                 # Special PUT endpoints use query params instead of body
                 # e.g. /order/{id}/:invoice, /invoice/{id}/:payment, /invoice/{id}/:createCreditNote
-                if any(action in path for action in ['/:invoice', '/:payment', '/:createCreditNote', '/:send', '/:reverse']):
+                if any(action in path for action in ['/:invoice', '/:payment', '/:createCreditNote', '/:send']):
                     resp = http_requests.put(url, auth=auth, params=params, timeout=30)
                 else:
                     resp = http_requests.put(url, auth=auth, json=body, timeout=30)
@@ -1130,7 +1131,7 @@ IMPORTANT: Return ONLY a valid JSON array. No markdown, no explanation, no comme
                     resp = http_requests.post(url, auth=auth, json=body, timeout=30)
                 elif method == "PUT":
                     if any(action in path for action in
-                           ['/:invoice', '/:payment', '/:createCreditNote', '/:send', '/:reverse']):
+                           ['/:invoice', '/:payment', '/:createCreditNote', '/:send']):
                         resp = http_requests.put(url, auth=auth, params=params, timeout=30)
                     else:
                         resp = http_requests.put(url, auth=auth, json=body, timeout=30)
