@@ -1529,6 +1529,41 @@ Since department_id, company_id, account IDs and other IDs are already known, yo
         # Use robust JSON cleaning
         text = clean_json_text(raw_text)
 
+        # Replace placeholder strings with actual env values BEFORE JSON parsing
+        # Gemini sometimes outputs "VOUCHER_TYPE_SUPPLIER_ID" instead of the numeric ID
+        if env_info:
+            replacements = {
+                "VOUCHER_TYPE_SUPPLIER_ID": env_info.get("voucher_type_supplier_id"),
+                "VOUCHER_TYPE_CUSTOMER_ID": env_info.get("voucher_type_customer_id"),
+                "VOUCHER_TYPE_SALARY_ID": env_info.get("voucher_type_salary_id"),
+                "VOUCHER_TYPE_PAYMENT_ID": env_info.get("voucher_type_payment_id"),
+                "VOUCHER_TYPE_MANUAL_ID": env_info.get("voucher_type_manual_id"),
+                "VOUCHER_TYPE_LONNSBILAG_ID": env_info.get("voucher_type_salary_id"),
+                "PAYMENT_TYPE_BANK_ID": env_info.get("payment_type_bank_id"),
+                "PAYMENT_TYPE_CASH_ID": env_info.get("payment_type_cash_id"),
+                "DEPARTMENT_ID": env_info.get("department_id"),
+                "COMPANY_ID": env_info.get("company_id"),
+                "EMPLOYEE_ID": env_info.get("employee_id"),
+            }
+            # Add all account IDs
+            for key, value in env_info.items():
+                if key.startswith("account_") and isinstance(value, int):
+                    replacements[key.upper()] = value
+            # Also add "from ENVIRONMENT" variants
+            for key, value in list(replacements.items()):
+                if value is not None:
+                    replacements[f"{key} from ENVIRONMENT"] = value
+                    replacements[f"{key} FROM ENVIRONMENT"] = value
+
+            replaced_count = 0
+            for placeholder, real_value in replacements.items():
+                if real_value is not None and f'"{placeholder}"' in text:
+                    text = text.replace(f'"{placeholder}"', str(real_value))
+                    replaced_count += 1
+                    logger.info(f"  Replaced '{placeholder}' → {real_value}")
+            if replaced_count > 0:
+                logger.info(f"  Total placeholders replaced: {replaced_count}")
+
         try:
             calls = json.loads(text)
         except json.JSONDecodeError:
