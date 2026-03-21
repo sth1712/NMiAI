@@ -1233,7 +1233,7 @@ async def solve(request: Request):
     base_url = creds["base_url"]
     session_token = creds["session_token"]
 
-    logger.info(f"Task: {prompt[:300]}...")
+    logger.info(f"Task: {prompt[:1000]}")
 
     # === PRE-FLIGHT: Auto-setup and environment discovery ===
     auth = ("0", session_token)
