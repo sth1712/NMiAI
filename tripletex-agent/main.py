@@ -1160,25 +1160,42 @@ def execute_api_calls(calls, base_url, session_token, original_prompt=""):
             account_ids = [p.get("account", {}).get("id") for p in postings if isinstance(p, dict)]
             if len(set(account_ids)) == 1 and len(account_ids) >= 2:
                 # All postings use the same account — this is wrong!
-                # Try to find different account IDs from previous GET results
-                available_account_ids = []
+                # Build a map of available accounts from previous GET results
+                available_accounts = []  # list of (id, number, name)
                 for r_idx, r in enumerate(results):
                     if r and isinstance(r, dict):
+                        obj = None
                         if "value" in r and isinstance(r["value"], dict) and "number" in r["value"]:
-                            available_account_ids.append(r["value"].get("id"))
+                            obj = r["value"]
                         elif "values" in r and r["values"] and isinstance(r["values"][0], dict) and "number" in r["values"][0]:
-                            available_account_ids.append(r["values"][0].get("id"))
-                # Remove duplicates while preserving order
-                unique_accounts = list(dict.fromkeys(available_account_ids))
-                if len(unique_accounts) >= 2:
-                    # Assign different accounts to different postings
+                            obj = r["values"][0]
+                        if obj:
+                            available_accounts.append({
+                                "id": obj.get("id"),
+                                "number": str(obj.get("number", "")),
+                                "name": obj.get("name", "").lower()
+                            })
+
+                if len(available_accounts) >= 2:
+                    # Try to match accounts to postings based on description keywords
                     for p_idx, posting in enumerate(postings):
-                        if p_idx < len(unique_accounts):
-                            old_id = posting.get("account", {}).get("id")
-                            new_id = unique_accounts[p_idx]
-                            if old_id != new_id:
-                                posting["account"]["id"] = new_id
-                                logger.info(f"  Fixed posting {p_idx}: account {old_id} → {new_id}")
+                        desc = posting.get("description", "").lower()
+                        best_match = None
+                        # Look for account number mentions in description
+                        for acc in available_accounts:
+                            if acc["number"] in desc or acc["name"] in desc:
+                                best_match = acc
+                                break
+                        # Fallback: alternate between first two unique accounts
+                        if not best_match:
+                            unique_ids = list(dict.fromkeys([a["id"] for a in available_accounts]))
+                            best_match = {"id": unique_ids[p_idx % len(unique_ids)]}
+
+                        old_id = posting.get("account", {}).get("id")
+                        new_id = best_match["id"]
+                        if old_id != new_id:
+                            posting["account"]["id"] = new_id
+                            logger.info(f"  Fixed posting {p_idx}: account {old_id} → {new_id}")
 
         url = f"{base_url}{path}"
         logger.info(f"Call {i}: {method} {url}")
@@ -1816,6 +1833,13 @@ Since department_id, company_id, account IDs and other IDs are already known, yo
                 "COMPANY_ID": env_info.get("company_id"),
                 "EMPLOYEE_ID": env_info.get("employee_id"),
             }
+            # Add activity ID (first one)
+            activity_ids = env_info.get("activity_ids", [])
+            if activity_ids:
+                replacements["FIRST_ACTIVITY_ID"] = activity_ids[0].get("id")
+            # Add travel payment type
+            if env_info.get("travel_payment_type_id"):
+                replacements["TRAVEL_PAYMENT_TYPE_ID"] = env_info.get("travel_payment_type_id")
             # Add all account IDs
             for key, value in env_info.items():
                 if key.startswith("account_") and isinstance(value, int):
