@@ -905,7 +905,13 @@ def resolve_placeholders(value, results):
                         field_val = field_val["id"]
                     if value == field_match.group(0):
                         return field_val
-                    return value.replace(field_match.group(0), str(field_val))
+                    # Handle Gemini's "$PREV_0_FIELD_customer.id" pattern
+                    # After replacing $PREV_0_FIELD_customer with the value,
+                    # ".id" remains as string suffix — strip it
+                    result = value.replace(field_match.group(0), str(field_val))
+                    if result == f"{field_val}.id":
+                        return field_val
+                    return result
 
         # Then check for $PREV_N_ID pattern
         pattern = r'\$PREV_(\d+)_ID'
