@@ -386,8 +386,11 @@ After creating asset, register depreciation via POST /ledger/voucher (6010/1200)
 ## Search for existing entities
 Use the fields parameter to minimize response size.
 CRITICAL: For nested fields, use PARENTHESES not dots! Example: fields=id,amount,customer(id,name) — NOT customer.id!
+CRITICAL: When an organization number (orgnr/org.nr) is given in the prompt, ALWAYS search by organizationNumber! This is the most reliable identifier.
 - GET /employee?firstName=X&lastName=Y&fields=id,firstName,lastName
 - GET /customer?name=X&fields=id,name
+- GET /customer?organizationNumber=X&fields=id,name (when orgnr is given — PREFERRED!)
+- GET /supplier?organizationNumber=X&fields=id,name (when orgnr is given — PREFERRED!)
 - GET /product?name=X&fields=id,name
 - GET /project?name=X&fields=id,name
 
@@ -919,6 +922,8 @@ def execute_api_calls(calls, base_url, session_token, original_prompt=""):
 
         url = f"{base_url}{path}"
         logger.info(f"Call {i}: {method} {url}")
+        if params:
+            logger.info(f"  Params: {json.dumps(params)[:500]}")
         if body:
             logger.info(f"  Body: {json.dumps(body)[:1000]}")
 
