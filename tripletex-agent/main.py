@@ -484,15 +484,22 @@ If the task mentions a CSV/bank statement file:
 
 ## 23. YEAR-END / PERIOD CLOSING (årsoppgjør)
 
-For period closing tasks:
-1. GET /ledger/accountingPeriod to find the period
-2. GET /ledger/closeGroup?dateFrom=X&dateTo=Y to find close groups
-3. Income/expense accounts should be closed to equity (account 8800/2050)
-4. Register closing entries as vouchers
+For year-end tasks (avskrivning, periodisering, skatteavsetning):
+1. Look up EACH account separately with GET /ledger/account?numberFrom=X&numberTo=X
+2. Create vouchers with the CORRECT account IDs — NEVER use the same account for both debit and credit!
+3. CRITICAL: Each voucher must debit ONE account and credit a DIFFERENT account.
 
-For annual accounts:
+Example: Depreciation of IT equipment (avskrivning):
+- GET /ledger/account?numberFrom=6010 → gets depreciation expense account ID
+- GET /ledger/account?numberFrom=1209 → gets accumulated depreciation account ID (DIFFERENT!)
+- POST /ledger/voucher with postings:
+  - Row 1: account $PREV_0_ID (6010 debit), amount: +16575
+  - Row 2: account $PREV_1_ID (1209 credit), amount: -16575
+NOTE: $PREV_0_ID and $PREV_1_ID are DIFFERENT accounts! Row 1 uses the expense account, Row 2 uses the asset/liability account.
+
+For annual accounts / period closing:
 - GET /ledger/annualAccount — shows configured accounting years
-- Closing journal entries: debit all income accounts, credit all expense accounts, net to equity
+- Use account 8800 (årsresultat) and 2050 (egenkapital) for closing entries
 
 ## 24. OTHER ENDPOINTS
 - GET /ledger/account — 500+ accounts, standard Norwegian chart
