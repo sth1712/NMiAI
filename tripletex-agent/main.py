@@ -1162,8 +1162,24 @@ async def solve(request: Request):
                         env_info["voucher_type_salary_id"] = vt["id"]
                     elif "betaling" == name_lower or name_lower == "betaling":
                         env_info["voucher_type_payment_id"] = vt["id"]
-                    elif "manuelt" in name_lower or "manuell" in name_lower or "manuel" in name_lower:
+                    elif "manuelt" in name_lower or "manuell" in name_lower or "manuel" in name_lower or "memorial" in name_lower:
                         env_info["voucher_type_manual_id"] = vt["id"]
+                # Log all voucherTypes for debugging
+                env_info["all_voucher_types"] = [
+                    {"id": vt["id"], "name": vt.get("name", "")}
+                    for vt in vt_resp.json()["values"]
+                ]
+                # Fallback: if no manual type found, use the first type that isn't supplier/customer/salary/payment
+                if "voucher_type_manual_id" not in env_info:
+                    for vt in vt_resp.json()["values"]:
+                        if vt["id"] not in [
+                            env_info.get("voucher_type_supplier_id"),
+                            env_info.get("voucher_type_customer_id"),
+                            env_info.get("voucher_type_salary_id"),
+                            env_info.get("voucher_type_payment_id"),
+                        ]:
+                            env_info["voucher_type_manual_id"] = vt["id"]
+                            break
         except Exception:
             pass
 
