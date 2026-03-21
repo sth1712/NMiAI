@@ -1543,6 +1543,62 @@ Since department_id, company_id, account IDs and other IDs are already known, yo
         if not isinstance(calls, list):
             calls = [calls]
 
+        # CRITICAL: Replace any placeholder strings with actual values from env_info
+        # Gemini sometimes outputs "VOUCHER_TYPE_SUPPLIER_ID" instead of the actual numeric ID
+        placeholder_map = {}
+        for key, value in env_info.items():
+            if isinstance(value, (int, float)):
+                # Map both uppercase and original formats
+                placeholder_map[key.upper()] = value
+                placeholder_map[key] = value
+        # Also map common patterns from systemprompt examples
+        name_mappings = {
+            "VOUCHER_TYPE_SUPPLIER_ID": env_info.get("voucher_type_supplier_id"),
+            "VOUCHER_TYPE_CUSTOMER_ID": env_info.get("voucher_type_customer_id"),
+            "VOUCHER_TYPE_SALARY_ID": env_info.get("voucher_type_salary_id"),
+            "VOUCHER_TYPE_PAYMENT_ID": env_info.get("voucher_type_payment_id"),
+            "VOUCHER_TYPE_MANUAL_ID": env_info.get("voucher_type_manual_id"),
+            "VOUCHER_TYPE_LONNSBILAG_ID": env_info.get("voucher_type_salary_id"),
+            "PAYMENT_TYPE_BANK_ID": env_info.get("payment_type_bank_id"),
+            "PAYMENT_TYPE_CASH_ID": env_info.get("payment_type_cash_id"),
+            "DEPARTMENT_ID": env_info.get("department_id"),
+            "COMPANY_ID": env_info.get("company_id"),
+            "EMPLOYEE_ID": env_info.get("employee_id"),
+        }
+        for k, v in name_mappings.items():
+            if v is not None:
+                placeholder_map[k] = v
+        # Add ACCOUNT_XXXX_ID patterns
+        for key, value in env_info.items():
+            if key.startswith("account_") and isinstance(value, int):
+                placeholder_map[key.upper()] = value
+
+        def replace_placeholders_in_value(val):
+            if isinstance(val, str):
+                # Check if the entire string is a placeholder
+                upper_val = val.strip().upper().replace(" ", "_")
+                # Remove common suffixes like "FROM ENVIRONMENT"
+                for suffix in [" FROM ENVIRONMENT", "_FROM_ENVIRONMENT", " from ENVIRONMENT"]:
+                    if val.upper().endswith(suffix.upper()):
+                        upper_val = val[:len(val)-len(suffix)].strip().upper().replace(" ", "_")
+                        break
+                if upper_val in placeholder_map:
+                    logger.info(f"  Replaced placeholder '{val}' → {placeholder_map[upper_val]}")
+                    return placeholder_map[upper_val]
+                # Also check without _ID suffix variations
+                for pk, pv in placeholder_map.items():
+                    if val.upper().replace(" ", "_").replace("-", "_") == pk:
+                        logger.info(f"  Replaced placeholder '{val}' → {pv}")
+                        return pv
+                return val
+            elif isinstance(val, dict):
+                return {k: replace_placeholders_in_value(v) for k, v in val.items()}
+            elif isinstance(val, list):
+                return [replace_placeholders_in_value(v) for v in val]
+            return val
+
+        calls = replace_placeholders_in_value(calls)
+
         # FALLBACK: If Gemini returns empty array, retry with explicit instruction
         if len(calls) == 0:
             logger.warning("Gemini returned empty array — retrying with fallback prompt")
