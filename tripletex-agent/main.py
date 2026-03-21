@@ -193,10 +193,12 @@ Optional: date (YYYY-MM-DD — field is called "date", NOT startDate/endDate/dep
 
 ### POST /travelExpense/cost
 Required: travelExpense.id, costCategory.id, paymentType.id, date, amountCurrencyIncVat, currency.id
-paymentType is an OBJECT with id: {"id": X}. GET /travelExpense/paymentType to find types.
-
-costCategory IDs: 33233547=Bomavgift, 33233548=Buss, 33233554=Fly, 33233557=Hotell, 33233562=Mat, 33233564=Parkering, 33233569=Taxi, 33233571=Tog, 33233550=Drivstoff, 33233545=Telefon, 33233540=Kontorrekvisita
+paymentType: use travel_payment_type_id from ENVIRONMENT
+costCategory: use cost_cat_*_id from ENVIRONMENT (e.g. cost_cat_fly_id for flights, cost_cat_taxi_id for taxi)
+CRITICAL: costCategory IDs are DIFFERENT per sandbox — NEVER hardcode them! Use the IDs from ENVIRONMENT section.
 currency: {"id": 1}=NOK, {"id": 5}=EUR, {"id": 4}=USD
+
+For "dagpenger" / "per diem" / "Tagegeld": use cost_cat_mat_id or create a manual voucher instead.
 
 ### DELETE /travelExpense/{id} — returns 204 on success
 
@@ -225,7 +227,7 @@ Optional: departmentNumber (string, e.g. "200")
 
 ## 10. SALARY (PAYROLL)
 
-IMPORTANT: POST /salary/payslip returns 403 (module not enabled). Use voucher instead!
+CRITICAL: NEVER use POST /salary/payslip or POST /salary/transaction — they ALWAYS return 500/403! Use POST /ledger/voucher with voucherType "Lønnsbilag" instead!
 
 ### ALTERNATIVE: Register salary as a manual voucher (Lønnsbilag)
 This is the CORRECT approach when the salary module is not available:
@@ -1155,6 +1157,40 @@ async def solve(request: Request):
         except Exception:
             pass
 
+        # 6b. Get travelExpense costCategory IDs (CRITICAL — IDs differ per sandbox!)
+        try:
+            cc_resp = http_requests.get(f"{base_url}/travelExpense/costCategory", auth=auth, params={"fields": "id,description", "count": 50}, timeout=10)
+            if cc_resp.status_code == 200 and cc_resp.json().get("values"):
+                cost_cats = {}
+                for cc in cc_resp.json()["values"]:
+                    desc = cc.get("description", "").lower()
+                    cost_cats[cc["id"]] = cc.get("description", "")
+                    if "fly" in desc:
+                        env_info["cost_cat_fly_id"] = cc["id"]
+                    elif "hotell" in desc:
+                        env_info["cost_cat_hotell_id"] = cc["id"]
+                    elif "taxi" in desc:
+                        env_info["cost_cat_taxi_id"] = cc["id"]
+                    elif "tog" == desc or "tog" in desc:
+                        env_info["cost_cat_tog_id"] = cc["id"]
+                    elif "mat" == desc:
+                        env_info["cost_cat_mat_id"] = cc["id"]
+                    elif "parkering" in desc:
+                        env_info["cost_cat_parkering_id"] = cc["id"]
+                    elif "bom" in desc:
+                        env_info["cost_cat_bom_id"] = cc["id"]
+                    elif "drivstoff" == desc:
+                        env_info["cost_cat_drivstoff_id"] = cc["id"]
+                    elif "kontorrekvisita" in desc:
+                        env_info["cost_cat_kontor_id"] = cc["id"]
+                    elif "telefon" in desc:
+                        env_info["cost_cat_telefon_id"] = cc["id"]
+                    elif "buss" == desc:
+                        env_info["cost_cat_buss_id"] = cc["id"]
+                env_info["all_cost_categories"] = [{"id": k, "desc": v} for k, v in list(cost_cats.items())[:20]]
+        except Exception:
+            pass
+
         # 7. Get activity IDs (for timesheet)
         try:
             act_resp = http_requests.get(f"{base_url}/activity", auth=auth, params={"fields": "id,name", "count": 10}, timeout=10)
@@ -1253,6 +1289,20 @@ async def solve(request: Request):
 - voucher_type_payment_id (Betaling): {env_info.get('voucher_type_payment_id', 'unknown')}
 - activity_ids: {json.dumps(env_info.get('activity_ids', []))}
 - salary_type_ids: {json.dumps(env_info.get('salary_type_ids', []))}
+
+Travel expense cost categories (USE THESE IDs, not hardcoded ones!):
+- cost_cat_fly_id: {env_info.get('cost_cat_fly_id', 'unknown')}
+- cost_cat_hotell_id: {env_info.get('cost_cat_hotell_id', 'unknown')}
+- cost_cat_taxi_id: {env_info.get('cost_cat_taxi_id', 'unknown')}
+- cost_cat_tog_id: {env_info.get('cost_cat_tog_id', 'unknown')}
+- cost_cat_mat_id: {env_info.get('cost_cat_mat_id', 'unknown')}
+- cost_cat_parkering_id: {env_info.get('cost_cat_parkering_id', 'unknown')}
+- cost_cat_bom_id: {env_info.get('cost_cat_bom_id', 'unknown')}
+- cost_cat_drivstoff_id: {env_info.get('cost_cat_drivstoff_id', 'unknown')}
+- cost_cat_kontor_id: {env_info.get('cost_cat_kontor_id', 'unknown')}
+- cost_cat_telefon_id: {env_info.get('cost_cat_telefon_id', 'unknown')}
+- cost_cat_buss_id: {env_info.get('cost_cat_buss_id', 'unknown')}
+- all_cost_categories: {json.dumps(env_info.get('all_cost_categories', []))}
 - account_1500_id (Kundefordringer): {env_info.get('account_1500_id', 'unknown')}
 - account_1920_id (Bankinnskudd): {env_info.get('account_1920_id', 'unknown')}
 - account_2400_id (Leverandørgjeld): {env_info.get('account_2400_id', 'unknown')}
