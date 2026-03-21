@@ -279,7 +279,7 @@ Example: {"dimensionName": "Region"}
 Create dimension values (e.g. "Nord", "Sør", "Vest"):
 CRITICAL: The field is called "displayName" (NOT "name" or "dimensionValueName"!)
 Required: displayName
-Optional: dimensionIndex (integer — set to match the dimension's index to link them)
+Do NOT include "accountingDimensionName" or "dimensionName" — those fields don't exist on this endpoint!
 Example: {"displayName": "Nord"}
 
 ### GET /ledger/accountingDimensionName/search — find existing dimensions
