@@ -1305,6 +1305,7 @@ REMAINING PLANNED CALLS AFTER THE FAILED ONE:
 Return a JSON ARRAY of corrected API calls to execute NOW (the fixed version of the failed call + any remaining calls needed to complete the task).
 Use $PREV_N_ID where N refers to the ORIGINAL call indices (0-based from the start of the full sequence).
 Also use $RETRY_N_ID to reference the Nth call in YOUR returned array (0-based).
+IMPORTANT: If a POST fails because an entity already exists (422 "already exists" / "i bruk"), use GET to find the existing entity instead of creating a new one. This avoids wasting write calls.
 
 IMPORTANT: Return ONLY a valid JSON array. No markdown, no explanation, no comments."""
 
@@ -1698,6 +1699,10 @@ async def solve(request: Request):
                         env_info["account_2910_id"] = acc["id"]
                     elif acc_num == "3400":
                         env_info["account_3400_id"] = acc["id"]
+                    elif acc_num == "2050":
+                        env_info["account_2050_id"] = acc["id"]
+                    elif acc_num == "8800":
+                        env_info["account_8800_id"] = acc["id"]
         except Exception:
             pass
 
@@ -1761,6 +1766,8 @@ Travel expense cost categories (USE THESE IDs, not hardcoded ones!):
 - account_7140_id (Reisekostnad): {env_info.get('account_7140_id', 'unknown')}
 - account_7770_id (Bank- og kortgebyrer): {env_info.get('account_7770_id', 'unknown')}
 - account_2910_id (Gjeld til ansatte): {env_info.get('account_2910_id', 'unknown')}
+- account_2050_id (Egenkapital): {env_info.get('account_2050_id', 'unknown')}
+- account_8800_id (Årsresultat): {env_info.get('account_8800_id', 'unknown')}
 
 IMPORTANT: Each account ID above is UNIQUE. Use the CORRECT account for each posting. For supplier invoices, the expense account depends on what the prompt says (e.g. "kontorrekvisita" = account_6800_id, "kontortjenester" = account_6500_id or account_7100_id).
 
@@ -1842,8 +1849,8 @@ Since department_id, company_id, account IDs and other IDs are already known, yo
         if not isinstance(calls, list):
             calls = [calls]
 
-        # CRITICAL: Replace any placeholder strings with actual values from env_info
-        # Gemini sometimes outputs "VOUCHER_TYPE_SUPPLIER_ID" instead of the actual numeric ID
+        # SECONDARY placeholder replacement — catches any remaining placeholders after JSON parsing
+        # Primary replacement happens on raw text BEFORE json.loads (line ~1797)
         placeholder_map = {}
         for key, value in env_info.items():
             if isinstance(value, (int, float)):

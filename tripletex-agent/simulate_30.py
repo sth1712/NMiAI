@@ -105,6 +105,25 @@ TASKS = [
 
     {"name": "T3-30 Regnskapsdimensjoner", "tier": 3,
      "prompt": f"Opprett en fri regnskapsdimensjon kalt 'Region' med verdiene 'Nord', 'Sør' og 'Vest'. Bokfør deretter 15000 kr på konto 6800 fordelt på region Nord."},
+
+    # === NYE OPPGAVETYPER (lagt til etter gap-analyse) ===
+    {"name": "T2-31 Leverandørbetaling", "tier": 2,
+     "prompt": f"Betal leverandørfaktura til NattTest Leverandor AS på 12500 kr fra bankkonto."},
+
+    {"name": "T2-32 Ansattutlegg", "tier": 2,
+     "prompt": f"Ansatt har lagt ut 4200 kr for kontorrekvisita. Registrer ansattutlegget."},
+
+    {"name": "T3-33 MVA-oppgjør", "tier": 3,
+     "prompt": f"Registrer MVA-oppgjør for Q1 2026. Utgående MVA 95000 kr, inngående MVA 38000 kr. Betal differansen til skatteetaten."},
+
+    {"name": "T2-34 Delbetaling", "tier": 2,
+     "prompt": f"Kunden har betalt 10000 kr av en utestående faktura. Registrer delbetalingen via bank."},
+
+    {"name": "T2-35 Privatperson som kunde", "tier": 2,
+     "prompt": f"Opprett privatkunden Per Hansen {TS} med e-post per.hansen@privat.no. Han er privatperson, ikke bedrift."},
+
+    {"name": "T3-36 Ansatt fra kontrakt", "tier": 3,
+     "prompt": f"Opprett ansatt Maria Garcia, e-post maria.garcia.{TS}@firma.no, foedselsdato 1992-03-22. Hun starter 1. april 2026, 100% stilling, aarslonn 480000 kr, fast ansettelse med maanedslonn. Opprett baade ansatt og ansettelsesforhold."},
 ]
 
 def run_task(task):
