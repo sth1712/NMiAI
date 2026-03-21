@@ -1173,17 +1173,29 @@ IMPORTANT: Return ONLY a valid JSON array. No markdown, no explanation, no comme
 
 
 def extract_file_content(files):
-    """Extract text content from attached files."""
+    """Extract text content and multimodal parts from attached files.
+    Returns (text_descriptions, multimodal_parts) where multimodal_parts
+    are genai Part objects for PDFs/images that Gemini can read directly."""
+    from google.genai import types
+
     descriptions = []
+    parts = []
     for f in files:
         filename = f.get("filename", "unknown")
         mime = f.get("mime_type", "")
         try:
             data = base64.b64decode(f["content_base64"])
-            if "pdf" in mime:
-                descriptions.append(f"[PDF: {filename}, {len(data)} bytes]")
-            elif "image" in mime:
-                descriptions.append(f"[Image: {filename}, {len(data)} bytes]")
+            if "pdf" in mime or "image" in mime:
+                # Send directly to Gemini as multimodal content
+                parts.append(types.Part.from_bytes(data=data, mime_type=mime))
+                descriptions.append(f"[Attached {mime}: {filename}, {len(data)} bytes — content sent to you as multimodal input]")
+                logger.info(f"  File {filename}: sending as multimodal ({mime}, {len(data)} bytes)")
+            elif "csv" in mime or "text" in mime or "xml" in mime:
+                try:
+                    text = data.decode("utf-8")[:5000]
+                    descriptions.append(f"[File: {filename}]\n{text}")
+                except Exception:
+                    descriptions.append(f"[Binary: {filename}, {len(data)} bytes]")
             else:
                 try:
                     text = data.decode("utf-8")[:2000]
@@ -1192,7 +1204,7 @@ def extract_file_content(files):
                     descriptions.append(f"[Binary: {filename}, {len(data)} bytes]")
         except Exception:
             descriptions.append(f"[Could not decode: {filename}]")
-    return "\n".join(descriptions)
+    return "\n".join(descriptions), parts
 
 
 @app.get("/health")
@@ -1474,10 +1486,11 @@ Since department_id, company_id, account IDs and other IDs are already known, yo
 """
 
     user_prompt = f"Task prompt:\n{prompt}"
+    multimodal_parts = []
     if files:
-        file_info = extract_file_content(files)
+        file_info, multimodal_parts = extract_file_content(files)
         user_prompt += f"\n\nAttached files:\n{file_info}"
-        logger.info(f"Files attached: {len(files)}")
+        logger.info(f"Files attached: {len(files)} ({len(multimodal_parts)} multimodal)")
 
     # Ask Gemini to plan API calls
     if not client:
@@ -1485,9 +1498,11 @@ Since department_id, company_id, account IDs and other IDs are already known, yo
         return JSONResponse({"status": "completed"})
 
     try:
+        # Build content parts — text first, then any multimodal file parts
+        content_parts = [SYSTEM_PROMPT + env_block, user_prompt] + multimodal_parts
         response = client.models.generate_content(
             model=MODEL_NAME,
-            contents=[SYSTEM_PROMPT + env_block, user_prompt],
+            contents=content_parts,
             config={"temperature": 0.1, "max_output_tokens": 16384},
         )
         raw_text = response.text.strip()
