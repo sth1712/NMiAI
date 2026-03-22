@@ -2102,10 +2102,13 @@ INCLUDE EVERY FIELD from the prompt! Scoring is FIELD-BY-FIELD:
             # Add travel payment type
             if env_info.get("travel_payment_type_id"):
                 replacements["TRAVEL_PAYMENT_TYPE_ID"] = env_info.get("travel_payment_type_id")
-            # Add all account IDs
+            # Add ALL integer values from env_info — catches cost categories, payment types, accounts, etc.
             for key, value in env_info.items():
-                if key.startswith("account_") and isinstance(value, int):
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
                     replacements[key.upper()] = value
+                    # Also add without _id suffix variants
+                    if key.endswith("_id"):
+                        replacements[key.upper()] = value
             # Also add "from ENVIRONMENT" variants
             for key, value in list(replacements.items()):
                 if value is not None:
