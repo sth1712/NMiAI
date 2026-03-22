@@ -1823,84 +1823,18 @@ async def solve(request: Request):
                 timeout=15
             )
             if la_resp.status_code == 200 and la_resp.json().get("values"):
+                # Dynamic account mapping — ALL accounts, not just hardcoded ones
+                account_map = {}
                 for acc in la_resp.json()["values"]:
                     acc_num = str(acc.get("number", ""))
-                    if acc_num == "2400":
-                        env_info["account_2400_id"] = acc["id"]
-                    elif acc_num == "2710":
-                        env_info["account_2710_id"] = acc["id"]
-                    elif acc_num == "6800":
-                        env_info["account_6800_id"] = acc["id"]
-                    elif acc_num == "6500":
-                        env_info["account_6500_id"] = acc["id"]
-                    elif acc_num == "7100":
-                        env_info["account_7100_id"] = acc["id"]
-                    elif acc_num == "1500":
-                        env_info["account_1500_id"] = acc["id"]
-                    elif acc_num == "1920":
-                        env_info["account_1920_id"] = acc["id"]
-                    elif acc_num == "2700":
-                        env_info["account_2700_id"] = acc["id"]
-                    elif acc_num == "3000":
-                        env_info["account_3000_id"] = acc["id"]
-                    elif acc_num == "5000":
-                        env_info["account_5000_id"] = acc["id"]
-                    elif acc_num == "2930":
-                        env_info["account_2930_id"] = acc["id"]
-                    elif acc_num == "2600":
-                        env_info["account_2600_id"] = acc["id"]
-                    elif acc_num == "2770":
-                        env_info["account_2770_id"] = acc["id"]
-                    elif acc_num == "5400":
-                        env_info["account_5400_id"] = acc["id"]
-                    elif acc_num == "6010":
-                        env_info["account_6010_id"] = acc["id"]
-                    elif acc_num == "1200":
-                        env_info["account_1200_id"] = acc["id"]
-                    elif acc_num == "1700":
-                        env_info["account_1700_id"] = acc["id"]
-                    elif acc_num == "7140":
-                        env_info["account_7140_id"] = acc["id"]
-                    elif acc_num == "7770":
-                        env_info["account_7770_id"] = acc["id"]
-                    elif acc_num == "2910":
-                        env_info["account_2910_id"] = acc["id"]
-                    elif acc_num == "3400":
-                        env_info["account_3400_id"] = acc["id"]
-                    elif acc_num == "2050":
-                        env_info["account_2050_id"] = acc["id"]
-                    elif acc_num == "8800":
-                        env_info["account_8800_id"] = acc["id"]
-                    elif acc_num == "2900":
-                        env_info["account_2900_id"] = acc["id"]
-                    elif acc_num == "2920":
-                        env_info["account_2920_id"] = acc["id"]
-                    elif acc_num == "1209":
-                        env_info["account_1209_id"] = acc["id"]
-                    elif acc_num == "1210":
-                        env_info["account_1210_id"] = acc["id"]
-                    elif acc_num == "1230":
-                        env_info["account_1230_id"] = acc["id"]
-                    elif acc_num == "1240":
-                        env_info["account_1240_id"] = acc["id"]
-                    elif acc_num == "1250":
-                        env_info["account_1250_id"] = acc["id"]
-                    elif acc_num == "6020":
-                        env_info["account_6020_id"] = acc["id"]
-                    elif acc_num == "6030":
-                        env_info["account_6030_id"] = acc["id"]
-                    elif acc_num == "6340":
-                        env_info["account_6340_id"] = acc["id"]
-                    elif acc_num == "6390":
-                        env_info["account_6390_id"] = acc["id"]
-                    elif acc_num == "6590":
-                        env_info["account_6590_id"] = acc["id"]
-                    elif acc_num == "7000":
-                        env_info["account_7000_id"] = acc["id"]
-                    elif acc_num == "7300":
-                        env_info["account_7300_id"] = acc["id"]
-                    elif acc_num == "8700":
-                        env_info["account_8700_id"] = acc["id"]
+                    acc_id = acc.get("id")
+                    acc_name = acc.get("name", "")
+                    if acc_num and acc_id:
+                        account_map[acc_num] = {"id": acc_id, "name": acc_name}
+                        env_info[f"account_{acc_num}_id"] = acc_id
+                env_info["all_account_map"] = account_map
+                logger.info(f"  Loaded {len(account_map)} accounts dynamically")
+                # All accounts are now mapped dynamically above
         except Exception:
             pass
 
@@ -1915,6 +1849,7 @@ async def solve(request: Request):
         env_block = f"""
 
 ## ENVIRONMENT (pre-fetched — use these directly, do NOT call GET for them)
+- today_date: {__import__('datetime').date.today().isoformat()}
 - company_id: {env_info.get('company_id', 'unknown')}
 - employee_id (logged-in user): {env_info.get('employee_id', 'unknown')}
 - department_id: {env_info.get('department_id', 'unknown')} (name: "{env_info.get('department_name', '')}")
@@ -1943,47 +1878,19 @@ Travel expense cost categories (USE THESE IDs, not hardcoded ones!):
 - cost_cat_telefon_id: {env_info.get('cost_cat_telefon_id', 'unknown')}
 - cost_cat_buss_id: {env_info.get('cost_cat_buss_id', 'unknown')}
 - all_cost_categories: {json.dumps(env_info.get('all_cost_categories', []))}
-- account_1500_id (Kundefordringer): {env_info.get('account_1500_id', 'unknown')}
-- account_1920_id (Bankinnskudd): {env_info.get('account_1920_id', 'unknown')}
-- account_2400_id (Leverandørgjeld): {env_info.get('account_2400_id', 'unknown')}
-- account_2700_id (Utgående MVA): {env_info.get('account_2700_id', 'unknown')}
-- account_2710_id (Inngående MVA): {env_info.get('account_2710_id', 'unknown')}
-- account_3000_id (Salgsinntekt): {env_info.get('account_3000_id', 'unknown')}
-- account_3400_id (Purregebyr/inkassoinntekt): {env_info.get('account_3400_id', 'unknown')}
-- account_6500_id (Kontortjenester): {env_info.get('account_6500_id', 'unknown')}
-- account_6800_id (Kontorrekvisita): {env_info.get('account_6800_id', 'unknown')}
-- account_7100_id (Kontortjenester 2): {env_info.get('account_7100_id', 'unknown')}
-- account_5000_id (Lønn til ansatte): {env_info.get('account_5000_id', 'unknown')}
-- account_2930_id (Skyldig lønn): {env_info.get('account_2930_id', 'unknown')}
-- account_2600_id (Forskuddstrekk/skatt): {env_info.get('account_2600_id', 'unknown')}
-- account_2770_id (Skyldig arbeidsgiveravgift): {env_info.get('account_2770_id', 'unknown')}
-- account_5400_id (Arbeidsgiveravgift kostnad): {env_info.get('account_5400_id', 'unknown')}
-- account_6010_id (Avskrivning maskiner): {env_info.get('account_6010_id', 'unknown')}
-- account_1200_id (Maskiner og anlegg): {env_info.get('account_1200_id', 'unknown')}
-- account_1700_id (Forskuddsbetalte kostnader): {env_info.get('account_1700_id', 'unknown')}
-- account_7140_id (Reisekostnad): {env_info.get('account_7140_id', 'unknown')}
-- account_7770_id (Bank- og kortgebyrer): {env_info.get('account_7770_id', 'unknown')}
-- account_2910_id (Gjeld til ansatte): {env_info.get('account_2910_id', 'unknown')}
-- account_2050_id (Egenkapital): {env_info.get('account_2050_id', 'unknown')}
-- account_8800_id (Årsresultat): {env_info.get('account_8800_id', 'unknown')}
-- account_2900_id (Påløpt lønn): {env_info.get('account_2900_id', 'unknown')}
-- account_2920_id (Betalbar skatt): {env_info.get('account_2920_id', 'unknown')}
-- account_1209_id (Akkumulerte avskrivninger): {env_info.get('account_1209_id', 'unknown')}
-- account_1210_id (IT-utstyr): {env_info.get('account_1210_id', 'unknown')}
-- account_1230_id (Kjøretøy): {env_info.get('account_1230_id', 'unknown')}
-- account_1240_id (Inventar): {env_info.get('account_1240_id', 'unknown')}
-- account_1250_id (Programvare): {env_info.get('account_1250_id', 'unknown')}
-- account_6020_id (Avskrivning inventar): {env_info.get('account_6020_id', 'unknown')}
-- account_6340_id (Lys/varme): {env_info.get('account_6340_id', 'unknown')}
-- account_6390_id (Annen leiekostnad): {env_info.get('account_6390_id', 'unknown')}
-- account_6590_id (Rep/vedlikehold): {env_info.get('account_6590_id', 'unknown')}
-- account_7000_id (Driftskostnader): {env_info.get('account_7000_id', 'unknown')}
-- account_7300_id (Salgs-/reklamekostnad): {env_info.get('account_7300_id', 'unknown')}
-- account_8700_id (Skattekostnad): {env_info.get('account_8700_id', 'unknown')}
+LEDGER ACCOUNTS (use account_NUMBER_id format — ALL are pre-fetched, NO GET needed!):
+{chr(10).join(f'- account_{num}_id ({info["name"]}): {info["id"]}' for num, info in sorted(env_info.get('all_account_map', {}).items(), key=lambda x: int(x[0]))[:80])}
 
-IMPORTANT: Each account ID above is UNIQUE. Use the CORRECT account for each posting. For supplier invoices, the expense account depends on what the prompt says (e.g. "kontorrekvisita" = account_6800_id, "kontortjenester" = account_6500_id or account_7100_id).
+CRITICAL: Use the account IDs above directly — NEVER call GET /ledger/account! Every account in the chart is listed above.
+Match the account to the task: "kontorrekvisita"→6800, "kontortjenester"→6500/7100, "reisekostnad"→7140, etc.
 
-Since department_id, company_id, account IDs and other IDs are already known, you do NOT need to call GET for them. Use the values above directly. This saves API calls and improves your efficiency score.
+INCLUDE EVERY FIELD from the prompt! Scoring is FIELD-BY-FIELD:
+- Customer: name, email, organizationNumber, postalAddress(addressLine1,postalCode,city), phoneNumber, invoiceEmail, language
+- Employee: firstName, lastName, email, dateOfBirth, nationalIdentityNumber, phoneNumberMobile, employeeNumber, address
+- Product: name, number, priceExcludingVatCurrency, vatType.id (3=25%, 5=15%, 6=0%)
+- Invoice: invoiceDueDate (ALWAYS set = invoiceDate + 30 days), sendToCustomer (true if "send" in prompt)
+- Orderline: description (use product/service name from prompt!)
+- Voucher: description should include WHAT, WHO, PERIOD, CALCULATION
 """
 
     # === TWO-STEP PREFETCH: Get customer/product IDs BEFORE Gemini call ===
