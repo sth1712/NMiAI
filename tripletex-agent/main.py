@@ -297,6 +297,12 @@ The projectManager employee MUST have TWO entitlements granted IN ORDER:
 2. entitlement 10 (AUTH_PROJECT_MANAGER) — SECOND
 Employee must be userType "EXTENDED". Without BOTH entitlements, project creation FAILS.
 
+### POST /activity
+For creating activities (e.g. for cost analysis tasks that say "create an activity for each project"):
+Required: name, activityType (MUST be "PROJECT_ACTIVITY" for project-related activities, or "GENERAL_ACTIVITY")
+CRITICAL: Do NOT put "project" field on the activity — it does NOT exist! Activities are global, not project-specific.
+If the task says "create an activity for each project", create the activities separately, then use them in timesheet entries.
+
 ## 9. DEPARTMENT
 
 ### POST /department
