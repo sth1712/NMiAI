@@ -1266,7 +1266,7 @@ def execute_api_calls(calls, base_url, session_token, original_prompt="", env_in
             elif method == "PUT":
                 # Special PUT endpoints use query params instead of body
                 # e.g. /order/{id}/:invoice, /invoice/{id}/:payment, /invoice/{id}/:createCreditNote
-                if any(action in path for action in ['/:invoice', '/:payment', '/:createCreditNote', '/:createReminder', '/:send', '/:reverse', '/:createVouchers']):
+                if any(action in path for action in ['/:invoice', '/:payment', '/:createCreditNote', '/:createReminder', '/:send', '/:reverse', '/:createVouchers', '/:closePostings']):
                     resp = http_requests.put(url, auth=auth, params=params, timeout=30)
                 else:
                     resp = http_requests.put(url, auth=auth, json=body, timeout=30)
@@ -1504,7 +1504,7 @@ IMPORTANT: Return ONLY a valid JSON array. No markdown, no explanation, no comme
                     resp = http_requests.post(url, auth=auth, json=body, timeout=30)
                 elif method == "PUT":
                     if any(action in path for action in
-                           ['/:invoice', '/:payment', '/:createCreditNote', '/:createReminder', '/:send', '/:reverse', '/:createVouchers']):
+                           ['/:invoice', '/:payment', '/:createCreditNote', '/:createReminder', '/:send', '/:reverse', '/:createVouchers', '/:closePostings']):
                         resp = http_requests.put(url, auth=auth, params=params, timeout=30)
                     else:
                         resp = http_requests.put(url, auth=auth, json=body, timeout=30)
