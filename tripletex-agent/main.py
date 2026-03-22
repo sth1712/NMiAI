@@ -641,9 +641,9 @@ NOTE: The values above are EXAMPLES. Replace them with the ACTUAL values from th
 ### Create employee (uses ENVIRONMENT values — no GET calls needed!)
 Prompt: "Opprett en ansatt Ola Nordmann, ola@example.org"
 [
-  {"method": "POST", "path": "/employee", "body": {"firstName": "Ola", "lastName": "Nordmann", "email": "ola@example.org", "userType": "STANDARD", "department": {"id": DEPARTMENT_ID}}}
+  {"method": "POST", "path": "/employee", "body": {"firstName": "Ola", "lastName": "Nordmann", "email": "ola@example.org", "dateOfBirth": "1985-06-15", "phoneNumberMobile": "99887766", "userType": "STANDARD", "department": {"id": DEPARTMENT_ID}}}
 ]
-NOTE: Replace DEPARTMENT_ID with the department_id value from the ENVIRONMENT section. Just 1 call instead of 2!
+NOTE: ALWAYS include dateOfBirth if given. Include phoneNumberMobile, employeeNumber, nationalIdentityNumber, address if mentioned in prompt.
 
 ### Create employee with admin role (uses ENVIRONMENT values)
 Prompt: "Opprett ansatt Kari Nordmann, kari@example.org. Hun skal være kontoadministrator."
@@ -653,10 +653,14 @@ Prompt: "Opprett ansatt Kari Nordmann, kari@example.org. Hun skal være kontoadm
 ]
 NOTE: Replace DEPARTMENT_ID and COMPANY_ID with values from ENVIRONMENT. Just 2 calls instead of 4!
 
-### Create customer/supplier (simple — 1 call each)
-- Customer: POST /customer with name, email, isCustomer:true, organizationNumber, postalAddress
-- Supplier: POST /supplier with name, email, organizationNumber
-- Both: POST /customer with isCustomer:true, isSupplier:true
+### Create customer (INCLUDE ALL FIELDS from prompt!)
+[
+  {"method": "POST", "path": "/customer", "body": {"name": "Firma AS", "email": "post@firma.no", "organizationNumber": "912345678", "isCustomer": true, "phoneNumber": "22334455", "invoiceEmail": "faktura@firma.no", "postalAddress": {"addressLine1": "Storgata 10", "postalCode": "0182", "city": "Oslo"}}}
+]
+NOTE: Include ALL fields from prompt: postalAddress, phoneNumber, invoiceEmail, language ("NO"/"EN"). Every missing field = lost points!
+
+### Create supplier: POST /supplier with name, email, organizationNumber
+### Both customer+supplier: POST /customer with isCustomer:true, isSupplier:true
 
 ## Tier 2: Multi-step & modification tasks
 
@@ -669,8 +673,8 @@ Same for customers with organization numbers — search first!
   {"method": "GET", "path": "/product", "params": {"number": "7390", "fields": "id,name,priceExcludingVatCurrency"}},
   {"method": "GET", "path": "/product", "params": {"number": "6965", "fields": "id,name,priceExcludingVatCurrency"}},
   {"method": "POST", "path": "/order", "body": {"customer": {"id": "$PREV_0_ID"}, "deliveryDate": "2026-03-20", "orderDate": "2026-03-20"}},
-  {"method": "POST", "path": "/order/orderline", "body": {"order": {"id": "$PREV_3_ID"}, "product": {"id": "$PREV_1_ID"}, "count": 1, "unitPriceExcludingVatCurrency": 39600.0, "vatType": {"id": 3}}},
-  {"method": "POST", "path": "/order/orderline", "body": {"order": {"id": "$PREV_3_ID"}, "product": {"id": "$PREV_2_ID"}, "count": 1, "unitPriceExcludingVatCurrency": 14550.0, "vatType": {"id": 3}}},
+  {"method": "POST", "path": "/order/orderline", "body": {"order": {"id": "$PREV_3_ID"}, "product": {"id": "$PREV_1_ID"}, "count": 1, "unitPriceExcludingVatCurrency": 39600.0, "vatType": {"id": 3}, "description": "Utvikling"}},
+  {"method": "POST", "path": "/order/orderline", "body": {"order": {"id": "$PREV_3_ID"}, "product": {"id": "$PREV_2_ID"}, "count": 1, "unitPriceExcludingVatCurrency": 14550.0, "vatType": {"id": 3}, "description": "Vedlikehold"}},
   {"method": "PUT", "path": "/order/$PREV_3_ID/:invoice", "params": {"invoiceDate": "2026-03-20", "invoiceDueDate": "2026-04-19", "sendToCustomer": "false"}},
   {"method": "PUT", "path": "/invoice/$PREV_6_ID/:payment", "params": {"paymentDate": "2026-03-20", "paymentTypeId": "PAYMENT_TYPE_BANK_ID", "paidAmount": "54150.0"}}
 ]
@@ -757,10 +761,10 @@ NOTE: Just 1 write call! All IDs from ENVIRONMENT. SALARY_ID for lønnsbilag, AC
 ### Create credit note for existing invoice
 Prompt: "Lag kreditnota for faktura til Acme AS for 'Consulting' (15000 NOK ekskl MVA)"
 [
-  {"method": "GET", "path": "/invoice", "params": {"customerName": "Acme AS", "invoiceDateFrom": "2026-01-01", "invoiceDateTo": "2026-12-31", "fields": "id,amount,customer"}},
-  {"method": "PUT", "path": "/invoice/$PREV_0_ID/:createCreditNote", "params": {"creditNoteEmail": "", "comment": "Kreditnota"}}
+  {"method": "GET", "path": "/invoice", "params": {"customerName": "Acme AS", "invoiceDateFrom": "2020-01-01", "invoiceDateTo": "2030-12-31", "fields": "id,invoiceNumber,amount,customer(id,name)"}},
+  {"method": "PUT", "path": "/invoice/$PREV_0_ID/:createCreditNote", "params": {"date": "2026-03-22", "comment": "Kreditnota", "sendToCustomer": "false"}}
 ]
-NOTE: Credit note is created via PUT /:createCreditNote on the EXISTING invoice. Only 2 calls.
+NOTE: MUST include date param (today or after invoice date). Use invoiceDateFrom/To with wide range. creditNoteEmail is NOT a valid param.
 
 ## Tier 2: Purring / Reminder charge (purregebyr)
 Prompt: "Kunden har en forfalt faktura. Registrer purregebyr 55 NOK. Debet kundefordring (1500), kredit purregebyr-inntekt (3400). Lag også purrefaktura og registrer betaling."
@@ -895,14 +899,12 @@ NOTE: Two vouchers — one for salary (lønn-skatt-netto), one for employer tax 
 ## Tier 3: Feilretting i hovedbok (error correction in general ledger)
 Prompt: "Vi har oppdaget feil i hovedboka. Konto 6860 ble brukt i stedet for 6590 (beløp 5100 kr). Rett feilen."
 For EACH error, create a correction voucher that reverses the wrong posting and adds the correct one.
-You need to look up account IDs for accounts NOT in ENVIRONMENT — use GET /ledger/account?numberFrom=X&numberTo=X&fields=id,number,name
+ALL account IDs are in ENVIRONMENT — use account_XXXX_id directly! NO need for GET /ledger/account!
 IMPORTANT: Use voucher_type_manual_id from ENVIRONMENT for ALL correction vouchers!
 [
-  {"method": "GET", "path": "/ledger/account", "params": {"numberFrom": "6860", "numberTo": "6860", "fields": "id,number,name"}},
-  {"method": "GET", "path": "/ledger/account", "params": {"numberFrom": "6590", "numberTo": "6590", "fields": "id,number,name"}},
-  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Korreksjon: Flyttet fra konto 6860 til 6590", "voucherType": {"id": "VOUCHER_TYPE_MANUAL_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-20", "account": {"id": "$PREV_1_ID"}, "amount": 5100.0, "amountCurrency": 5100.0, "amountGross": 5100.0, "amountGrossCurrency": 5100.0, "currency": {"id": 1}, "row": 1, "description": "Korreksjon debit riktig konto 6590"}, {"date": "2026-03-20", "account": {"id": "$PREV_0_ID"}, "amount": -5100.0, "amountCurrency": -5100.0, "amountGross": -5100.0, "amountGrossCurrency": -5100.0, "currency": {"id": 1}, "row": 2, "description": "Korreksjon kredit feil konto 6860"}]}}
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-22", "description": "Korreksjon: Flyttet fra konto 6860 til 6590", "voucherType": {"id": "VOUCHER_TYPE_MANUAL_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-22", "account": {"id": "ACCOUNT_6590_ID from ENVIRONMENT"}, "amount": 5100.0, "amountCurrency": 5100.0, "amountGross": 5100.0, "amountGrossCurrency": 5100.0, "currency": {"id": 1}, "row": 1, "description": "Korreksjon debit riktig konto 6590"}, {"date": "2026-03-22", "account": {"id": "ACCOUNT_6860_ID from ENVIRONMENT"}, "amount": -5100.0, "amountCurrency": -5100.0, "amountGross": -5100.0, "amountGrossCurrency": -5100.0, "currency": {"id": 1}, "row": 2, "description": "Korreksjon kredit feil konto 6860"}]}}
 ]
-NOTE: Look up EACH account separately so you get DIFFERENT IDs for debit and credit. Use $PREV_0_ID and $PREV_1_ID to reference them correctly.
+NOTE: Use account IDs from ENVIRONMENT directly! Just 1 write call, no GET needed. Use account_XXXX_id format.
 
 ## Update and delete — additional notes
 - For department search: use "query" parameter (not "name") — it's more robust.
@@ -1161,47 +1163,28 @@ def execute_api_calls(calls, base_url, session_token, original_prompt="", env_in
                     logger.info(f"  Merged PUT body with PREV_{idx} ({len(merged)} fields)")
 
         # VALIDATION: Fix voucher postings where all rows use the same account
+        # Use dynamic account map from env_info instead of previous GET results
         if method == "POST" and "/ledger/voucher" in path and body.get("postings"):
             postings = body["postings"]
             account_ids = [p.get("account", {}).get("id") for p in postings if isinstance(p, dict)]
-            if len(set(account_ids)) == 1 and len(account_ids) >= 2:
+            if len(set(account_ids)) == 1 and len(account_ids) >= 2 and env_info:
                 # All postings use the same account — this is wrong!
-                # Build a map of available accounts from previous GET results
-                available_accounts = []  # list of (id, number, name)
-                for r_idx, r in enumerate(results):
-                    if r and isinstance(r, dict):
-                        obj = None
-                        if "value" in r and isinstance(r["value"], dict) and "number" in r["value"]:
-                            obj = r["value"]
-                        elif "values" in r and r["values"] and isinstance(r["values"][0], dict) and "number" in r["values"][0]:
-                            obj = r["values"][0]
-                        if obj:
-                            available_accounts.append({
-                                "id": obj.get("id"),
-                                "number": str(obj.get("number", "")),
-                                "name": obj.get("name", "").lower()
-                            })
-
-                if len(available_accounts) >= 2:
-                    # Try to match accounts to postings based on description keywords
+                # Use the dynamic account map (ONLY actual ledger accounts, not customers/products)
+                account_map = env_info.get("all_account_map", {})
+                if account_map:
                     for p_idx, posting in enumerate(postings):
                         desc = posting.get("description", "").lower()
-                        best_match = None
-                        # Look for account number mentions in description
-                        for acc in available_accounts:
-                            if acc["number"] in desc or acc["name"] in desc:
-                                best_match = acc
+                        best_match_id = None
+                        # Look for account number in description
+                        for acc_num, acc_info in account_map.items():
+                            if acc_num in desc or acc_info.get("name", "").lower() in desc:
+                                best_match_id = acc_info["id"]
                                 break
-                        # Fallback: alternate between first two unique accounts
-                        if not best_match:
-                            unique_ids = list(dict.fromkeys([a["id"] for a in available_accounts]))
-                            best_match = {"id": unique_ids[p_idx % len(unique_ids)]}
-
-                        old_id = posting.get("account", {}).get("id")
-                        new_id = best_match["id"]
-                        if old_id != new_id:
-                            posting["account"]["id"] = new_id
-                            logger.info(f"  Fixed posting {p_idx}: account {old_id} → {new_id}")
+                        if best_match_id:
+                            old_id = posting.get("account", {}).get("id")
+                            if old_id != best_match_id:
+                                posting["account"]["id"] = best_match_id
+                                logger.info(f"  Fixed posting {p_idx}: account {old_id} → {best_match_id}")
 
         # VALIDATION: Add supplier.id to voucher postings if "Leverandør mangler"
         # Tripletex requires supplier.id on postings when voucherType is supplier-related
@@ -1924,13 +1907,15 @@ INCLUDE EVERY FIELD from the prompt! Scoring is FIELD-BY-FIELD:
     invoice_prefetch_context = ""
     prompt_lower = prompt.lower()
     is_prefetch_task = any(kw in prompt_lower for kw in [
-        "faktura", "invoice", "rechnung", "factura", "fatura",
-        "ordre", "order", "bestilling",
+        "faktura", "invoice", "rechnung", "factura", "fatura", "facture",
+        "ordre", "order", "bestilling", "bestellung", "commande", "pedido",
         "fakturere", "fakturering", "invoicing",
         "projekt", "project", "prosjekt", "proyecto", "projet",
         "timer", "hours", "stunden", "horas", "heures",
         "lønn", "salary", "gehalt", "salario", "salaire", "nómina",
         "leverand", "supplier", "lieferant", "fornecedor", "proveedor", "fournisseur",
+        "gutschrift", "kreditnota", "credit note", "nota de crédito", "avoir",
+        "betaling", "payment", "zahlung", "pago", "pagamento", "paiement",
     ])
 
     if is_prefetch_task and env_info.get("company_id"):
