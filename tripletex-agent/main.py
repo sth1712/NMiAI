@@ -261,7 +261,7 @@ Returns the created invoice object with id.
 
 ### Register payment on invoice
 PUT /invoice/{invoiceId}/:payment
-Query params: paymentDate (YYYY-MM-DD), paymentTypeId (33233580 for bank, 33233579 for cash), paidAmount (the amount)
+Query params: paymentDate (YYYY-MM-DD), paymentTypeId (use PAYMENT_TYPE_BANK_ID or PAYMENT_TYPE_CASH_ID from ENVIRONMENT), paidAmount (the amount)
 NOTE: paidAmount — NOT amount! Supports partial payments (call multiple times with partial amounts).
 
 ### Credit note
@@ -1104,18 +1104,14 @@ def resolve_placeholders(value, results):
                     obj = results[idx]["values"][0]
                 if obj and field_name in obj:
                     field_val = obj[field_name]
-                    # If field value is a dict with "id", extract just the id
-                    # This handles cases like customer: {"id": 123, "url": "..."} → 123
-                    if isinstance(field_val, dict) and "id" in field_val:
-                        field_val = field_val["id"]
+                    # Handle "$PREV_0_FIELD_customer.id" — extract .id from dict
+                    if value.endswith(".id") and isinstance(field_val, dict) and "id" in field_val:
+                        return field_val["id"]
+                    # For plain "$PREV_0_FIELD_customer" — return the WHOLE dict (e.g. {"id": 123})
+                    # This is needed for postings where customer: {"id": 123} is required
                     if value == field_match.group(0):
                         return field_val
-                    # Handle Gemini's "$PREV_0_FIELD_customer.id" pattern
-                    # After replacing $PREV_0_FIELD_customer with the value,
-                    # ".id" remains as string suffix — strip it
                     result = value.replace(field_match.group(0), str(field_val))
-                    if result == f"{field_val}.id":
-                        return field_val
                     return result
 
         # Then check for $PREV_N_ID pattern
@@ -1265,6 +1261,14 @@ def execute_api_calls(calls, base_url, session_token, original_prompt="", env_in
                             logger.warning(f"  fix_id_types: {current_path} unexpected type {type(val).__name__}: {val}")
                 return obj
             fix_id_types(body)
+
+        # Skip calls with "unknown" values in body — pre-flight failed
+        if method in ("POST", "PUT") and body:
+            body_str = json.dumps(body)
+            if '"unknown"' in body_str:
+                logger.warning(f"Call {i}: SKIPPED — body contains 'unknown' (pre-flight failed)")
+                results.append(None)
+                continue
 
         # Skip calls with unresolved $PREV references in path — they will always 404
         if "$PREV" in path or "$RETRY" in path:
