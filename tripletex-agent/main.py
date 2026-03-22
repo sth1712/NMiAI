@@ -532,7 +532,7 @@ When a customer pays in a different currency and the rate has changed:
 5. Register the exchange rate difference as a voucher:
    - Disagio (loss): debit 8160, credit 1500 (kundefordringer)
    - Agio (gain): debit 1500 (kundefordringer), credit 8060
-Look up accounts 8160 and 8060 with GET /ledger/account if not in ENVIRONMENT.
+Use account_8160_id and account_8060_id from ENVIRONMENT.
 
 ## 22. BANK RECONCILIATION (bankavstemming)
 
@@ -563,18 +563,18 @@ For month-end tasks (periodisering + avskrivning + lønnsavsetning):
 1. Periodisering: POST /ledger/voucher — debit kostnadskonto, credit 1700 (forskuddsbetalt)
 2. Avskrivning: POST /ledger/voucher — debit 6010/6030, credit 1200/1209 (DIFFERENT accounts!)
 3. Lønnsavsetning: POST /ledger/voucher — debit 5000, credit 2900 (påløpt lønn)
-Look up accounts 2900 and 6030 with GET /ledger/account if not in ENVIRONMENT.
+Use account_2900_id and account_6030_id from ENVIRONMENT.
 
 ## 25. YEAR-END / PERIOD CLOSING (årsoppgjør)
 
 For year-end tasks (avskrivning, periodisering, skatteavsetning):
-1. Look up EACH account separately with GET /ledger/account?numberFrom=X&numberTo=X
+1. Use account IDs from ENVIRONMENT (account_XXXX_id format)
 2. Create vouchers with the CORRECT account IDs — NEVER use the same account for both debit and credit!
 3. CRITICAL: Each voucher must debit ONE account and credit a DIFFERENT account.
 
 Example: Depreciation of IT equipment (avskrivning):
-- GET /ledger/account?numberFrom=6010 → gets depreciation expense account ID
-- GET /ledger/account?numberFrom=1209 → gets accumulated depreciation account ID (DIFFERENT!)
+- Use account_6010_id from ENVIRONMENT for depreciation expense
+- Use account_1209_id from ENVIRONMENT for accumulated depreciation (DIFFERENT account!)
 - POST /ledger/voucher with postings:
   - Row 1: account $PREV_0_ID (6010 debit), amount: +16575
   - Row 2: account $PREV_1_ID (1209 credit), amount: -16575
@@ -585,7 +585,7 @@ For annual accounts / period closing:
 - Use account 8800 (årsresultat) and 2050 (egenkapital) for closing entries
 
 ## 24. OTHER ENDPOINTS
-- GET /ledger/account — 500+ accounts, standard Norwegian chart
+- ALL ledger accounts are in ENVIRONMENT — use account_XXXX_id directly
 - GET /ledger/posting?dateFrom=X&dateTo=Y — query postings
 - GET /ledger/posting/openPost — open postings (utestående poster)
 - GET /inventory — warehouse/stock info
@@ -685,7 +685,7 @@ Same for customers with organization numbers — search first!
   {"method": "POST", "path": "/order/orderline", "body": {"order": {"id": "$PREV_3_ID"}, "product": {"id": "$PREV_1_ID"}, "count": 1, "unitPriceExcludingVatCurrency": 39600.0, "vatType": {"id": 3}, "description": "Utvikling"}},
   {"method": "POST", "path": "/order/orderline", "body": {"order": {"id": "$PREV_3_ID"}, "product": {"id": "$PREV_2_ID"}, "count": 1, "unitPriceExcludingVatCurrency": 14550.0, "vatType": {"id": 3}, "description": "Vedlikehold"}},
   {"method": "PUT", "path": "/order/$PREV_3_ID/:invoice", "params": {"invoiceDate": "2026-03-20", "invoiceDueDate": "2026-04-19", "sendToCustomer": "false"}},
-  {"method": "PUT", "path": "/invoice/$PREV_6_ID/:payment", "params": {"paymentDate": "2026-03-20", "paymentTypeId": "PAYMENT_TYPE_BANK_ID", "paidAmount": "54150.0"}}
+  {"method": "PUT", "path": "/invoice/$PREV_6_ID/:payment", "params": {"paymentDate": "2026-03-20", "paymentTypeId": "PAYMENT_TYPE_BANK_ID", "paidAmount": "$PREV_6_FIELD_amount"}}
 ]
 NOTE: ALWAYS include invoiceDueDate (invoiceDate + 30 days). Products searched by number. Customer by organizationNumber.
 
@@ -2122,7 +2122,9 @@ INCLUDE EVERY FIELD from the prompt! Scoring is FIELD-BY-FIELD:
                     replacements[f"{key} FROM ENVIRONMENT"] = value
 
             replaced_count = 0
-            for placeholder, real_value in replacements.items():
+            # Sort by key length DESCENDING to prevent partial matches
+            # e.g. "ACCOUNT_5000_ID from ENVIRONMENT" before "ACCOUNT_5000_ID"
+            for placeholder, real_value in sorted(replacements.items(), key=lambda x: len(x[0]), reverse=True):
                 if real_value is not None:
                     # Replace quoted version: "DEPARTMENT_ID" → 12345
                     if f'"{placeholder}"' in text:
