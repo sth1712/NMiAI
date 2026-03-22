@@ -2017,7 +2017,90 @@ IMPORTANT: Each account ID above is UNIQUE. Use the CORRECT account for each pos
 Since department_id, company_id, account IDs and other IDs are already known, you do NOT need to call GET for them. Use the values above directly. This saves API calls and improves your efficiency score.
 """
 
-    user_prompt = f"Task prompt:\n{prompt}"
+    # === TWO-STEP PREFETCH: Get customer/product IDs BEFORE Gemini call ===
+    invoice_prefetch_context = ""
+    prompt_lower = prompt.lower()
+    is_invoice_task = any(kw in prompt_lower for kw in [
+        "faktura", "invoice", "rechnung", "factura", "fatura",
+        "ordre", "order", "bestilling",
+        "fakturere", "fakturering", "invoicing",
+    ])
+
+    if is_invoice_task and env_info.get("company_id"):
+        logger.info("Invoice task detected — running two-step prefetch")
+        prefetch_results = []
+
+        # 1. Find customer(s) by organization number
+        orgnr_matches = re.findall(
+            r'(?:org\.?\s*(?:nr\.?|n[uú]m(?:ero)?|nummer)?\.?|organisasjonsnummer|organization\s*number|Org\.-Nr\.?)\s*[:=]?\s*(\d{9})',
+            prompt, re.IGNORECASE
+        )
+        for orgnr in set(orgnr_matches):
+            try:
+                cust_resp = http_requests.get(
+                    f"{base_url}/customer", auth=auth,
+                    params={"organizationNumber": orgnr, "fields": "id,name,organizationNumber", "count": 3},
+                    timeout=10,
+                )
+                if cust_resp.status_code == 200:
+                    cust_values = cust_resp.json().get("values", [])
+                    if cust_values:
+                        c = cust_values[0]
+                        prefetch_results.append(f"CUSTOMER (orgnr {orgnr}): id={c['id']}, name=\"{c.get('name', '')}\"")
+                        logger.info(f"  Prefetch customer orgnr={orgnr} → id={c['id']}")
+                    else:
+                        prefetch_results.append(f"CUSTOMER NOT FOUND for orgnr {orgnr} — create with POST /customer")
+            except Exception:
+                pass
+
+        # 2. Find product(s) by product number (parenthesized numbers after product names)
+        prod_matches = re.findall(r'[\(\(](\d{3,5})[\)\)]', prompt)
+        for prod_num in set(prod_matches):
+            try:
+                prod_resp = http_requests.get(
+                    f"{base_url}/product", auth=auth,
+                    params={"number": prod_num, "fields": "id,name,number,priceExcludingVatCurrency", "count": 3},
+                    timeout=10,
+                )
+                if prod_resp.status_code == 200:
+                    prod_values = prod_resp.json().get("values", [])
+                    if prod_values:
+                        p = prod_values[0]
+                        prefetch_results.append(f"PRODUCT (number {prod_num}): id={p['id']}, name=\"{p.get('name', '')}\"")
+                        logger.info(f"  Prefetch product nr={prod_num} → id={p['id']}")
+                    else:
+                        prefetch_results.append(f"PRODUCT NOT FOUND for number {prod_num} — create with POST /product")
+            except Exception:
+                pass
+
+        # 3. Also prefetch supplier if this is a supplier-related task
+        if any(kw in prompt_lower for kw in ["leverand", "supplier", "lieferant", "fornecedor", "proveedor", "fournisseur"]):
+            for orgnr in set(orgnr_matches):
+                try:
+                    sup_resp = http_requests.get(
+                        f"{base_url}/supplier", auth=auth,
+                        params={"organizationNumber": orgnr, "fields": "id,name,organizationNumber", "count": 3},
+                        timeout=10,
+                    )
+                    if sup_resp.status_code == 200:
+                        sup_values = sup_resp.json().get("values", [])
+                        if sup_values:
+                            s = sup_values[0]
+                            prefetch_results.append(f"SUPPLIER (orgnr {orgnr}): id={s['id']}, name=\"{s.get('name', '')}\"")
+                            logger.info(f"  Prefetch supplier orgnr={orgnr} → id={s['id']}")
+                        else:
+                            prefetch_results.append(f"SUPPLIER NOT FOUND for orgnr {orgnr} — create with POST /supplier")
+                except Exception:
+                    pass
+
+        if prefetch_results:
+            invoice_prefetch_context = "\n\n## PRE-FETCHED DATA (use these IDs directly — do NOT call GET for them!)\n"
+            invoice_prefetch_context += "\n".join(f"- {r}" for r in prefetch_results)
+            invoice_prefetch_context += "\nIMPORTANT: Use these IDs directly in your API calls. Skip GET calls for entities listed above."
+            logger.info(f"  Prefetch: {len(prefetch_results)} entities found")
+    # === END TWO-STEP PREFETCH ===
+
+    user_prompt = f"Task prompt:\n{prompt}{invoice_prefetch_context}"
     multimodal_parts = []
     if files:
         file_info, multimodal_parts = extract_file_content(files)
