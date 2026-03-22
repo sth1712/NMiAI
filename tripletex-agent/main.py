@@ -1654,9 +1654,9 @@ async def solve(request: Request):
             env_info["bank_configured"] = True
 
         # 3b. Set bank account on COMPANY level (required for invoice creation!)
+        # Try multiple approaches since different sandbox versions accept different methods
         if env_info.get("company_id"):
             try:
-                # GET with minimal fields to avoid read-only field issues on PUT
                 comp_resp = http_requests.get(
                     f"{base_url}/company/{env_info['company_id']}",
                     auth=auth,
@@ -1666,7 +1666,7 @@ async def solve(request: Request):
                 if comp_resp.status_code == 200:
                     comp_data = comp_resp.json().get("value", {})
                     if not comp_data.get("bankAccountNumber"):
-                        # PUT with only writable fields
+                        # Approach 1: PUT /company with minimal body
                         put_body = {
                             "id": comp_data.get("id"),
                             "name": comp_data.get("name"),
@@ -1679,13 +1679,34 @@ async def solve(request: Request):
                             json=put_body,
                             timeout=10
                         )
-                        logger.info(f"Company bank account: {comp_put.status_code}")
+                        logger.info(f"Company bank (approach 1): {comp_put.status_code}")
                         if comp_put.status_code >= 400:
-                            logger.warning(f"Company bank PUT error: {comp_put.text[:300]}")
+                            # Approach 2: GET with fields=* and PUT full object
+                            comp_full = http_requests.get(
+                                f"{base_url}/company/{env_info['company_id']}",
+                                auth=auth,
+                                params={"fields": "*"},
+                                timeout=10
+                            )
+                            if comp_full.status_code == 200:
+                                full_data = comp_full.json().get("value", {})
+                                full_data["bankAccountNumber"] = "15030100007"
+                                # Remove potentially read-only fields
+                                for ro_field in ["changes", "url", "displayName"]:
+                                    full_data.pop(ro_field, None)
+                                comp_put2 = http_requests.put(
+                                    f"{base_url}/company/{env_info['company_id']}",
+                                    auth=auth,
+                                    json=full_data,
+                                    timeout=10
+                                )
+                                logger.info(f"Company bank (approach 2): {comp_put2.status_code}")
+                                if comp_put2.status_code >= 400:
+                                    logger.warning(f"Company bank error: {comp_put2.text[:300]}")
                     else:
-                        logger.info(f"Company already has bank account: {comp_data.get('bankAccountNumber')}")
+                        logger.info(f"Company already has bank: {comp_data.get('bankAccountNumber')}")
             except Exception as e:
-                logger.warning(f"Company bank account setup failed: {e}")
+                logger.warning(f"Company bank setup failed: {e}")
 
         # 4. Get invoice payment types
         pt_resp = http_requests.get(f"{base_url}/invoice/paymentType", auth=auth, params={"fields": "id,description"}, timeout=10)
@@ -1717,22 +1738,38 @@ async def solve(request: Request):
                         env_info["voucher_type_payment_id"] = vt["id"]
                     elif "manuelt" in name_lower or "manuell" in name_lower or "manuel" in name_lower or "memorial" in name_lower:
                         env_info["voucher_type_manual_id"] = vt["id"]
+                    elif "purring" in name_lower:
+                        env_info["voucher_type_purring_id"] = vt["id"]
                 # Log all voucherTypes for debugging
                 env_info["all_voucher_types"] = [
                     {"id": vt["id"], "name": vt.get("name", "")}
                     for vt in vt_resp.json()["values"]
                 ]
-                # Fallback: if no manual type found, use the first type that isn't supplier/customer/salary/payment
+                # Fallback: if no manual type found, use a general-purpose type
+                # NEVER use Purring — it requires customer.id on every posting!
                 if "voucher_type_manual_id" not in env_info:
+                    # Prefer these types as manual fallback (most general-purpose)
+                    preferred_fallback = ["terminoppgave", "bankavstemming", "ansattutlegg"]
+                    excluded_ids = {
+                        env_info.get("voucher_type_supplier_id"),
+                        env_info.get("voucher_type_customer_id"),
+                        env_info.get("voucher_type_salary_id"),
+                        env_info.get("voucher_type_payment_id"),
+                        env_info.get("voucher_type_purring_id"),  # NEVER use Purring!
+                    }
+                    # First try preferred types
                     for vt in vt_resp.json()["values"]:
-                        if vt["id"] not in [
-                            env_info.get("voucher_type_supplier_id"),
-                            env_info.get("voucher_type_customer_id"),
-                            env_info.get("voucher_type_salary_id"),
-                            env_info.get("voucher_type_payment_id"),
-                        ]:
+                        if vt["id"] not in excluded_ids and vt.get("name", "").lower() in preferred_fallback:
                             env_info["voucher_type_manual_id"] = vt["id"]
+                            logger.info(f"Manual voucher fallback: {vt.get('name')} (id={vt['id']})")
                             break
+                    # If still not found, use any non-excluded type
+                    if "voucher_type_manual_id" not in env_info:
+                        for vt in vt_resp.json()["values"]:
+                            if vt["id"] not in excluded_ids:
+                                env_info["voucher_type_manual_id"] = vt["id"]
+                                logger.info(f"Manual voucher last-resort: {vt.get('name')} (id={vt['id']})")
+                                break
         except Exception:
             pass
 
