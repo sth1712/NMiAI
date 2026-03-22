@@ -1191,6 +1191,8 @@ def execute_api_calls(calls, base_url, session_token, original_prompt=""):
         body = call.get("body", {})
 
         path = resolve_placeholders(path, results)
+        # Fix ".id" suffix in paths — Gemini writes $PREV_N_FIELD_voucher.id → "123.id"
+        path = re.sub(r'(\d+)\.id\b', r'\1', path)
         params = resolve_placeholders(params, results)
         body = resolve_placeholders(body, results)
 
@@ -1258,6 +1260,30 @@ def execute_api_calls(calls, base_url, session_token, original_prompt=""):
                         if old_id != new_id:
                             posting["account"]["id"] = new_id
                             logger.info(f"  Fixed posting {p_idx}: account {old_id} → {new_id}")
+
+        # VALIDATION: Add supplier.id to voucher postings if "Leverandør mangler"
+        # Tripletex requires supplier.id on postings when voucherType is supplier-related
+        if method == "POST" and "/ledger/voucher" in path and body.get("postings"):
+            vt_id = body.get("voucherType", {}).get("id")
+            supplier_vt = env_info.get("voucher_type_supplier_id") if env_info else None
+            # Check if any posting already has supplier — if not, try to find from previous GET results
+            postings = body["postings"]
+            has_supplier = any(p.get("supplier") for p in postings if isinstance(p, dict))
+            if not has_supplier:
+                # Look for supplier ID in previous results
+                found_supplier_id = None
+                for r in results:
+                    if r and isinstance(r, dict):
+                        obj = r.get("value") or (r.get("values", [None])[0] if r.get("values") else None)
+                        if obj and isinstance(obj, dict):
+                            if "organizationNumber" in obj and obj.get("id"):
+                                # Check if this looks like a supplier (has org number, came from supplier search)
+                                found_supplier_id = obj["id"]
+                if found_supplier_id and vt_id == supplier_vt:
+                    for p in postings:
+                        if isinstance(p, dict) and not p.get("supplier"):
+                            p["supplier"] = {"id": found_supplier_id}
+                    logger.info(f"  Added supplier.id={found_supplier_id} to {len(postings)} postings")
 
         # VALIDATION: Ensure nested ID fields are integers, not strings
         # Fixes "Verdien er ikke av korrekt type" errors on supplier.id, product.id, etc.
