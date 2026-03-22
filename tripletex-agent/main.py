@@ -112,6 +112,10 @@ Even if you're unsure about exact field names, try with reasonable guesses — t
 5. Use ENVIRONMENT IDs directly — NEVER hardcode IDs, they change per sandbox
 6. For voucher postings: set amountCurrency=amount, amountGross=amount, amountGrossCurrency=amount (always same value)
 7. When PDF/files are attached: extract ACTUAL values — never send placeholder text like "FROM PDF"
+8. ALL id fields MUST be integers, NEVER strings. Write 123 not "123". ALL amounts MUST be numbers, not strings.
+9. When prompt says "send" invoice/faktura: use sendToCustomer=true. Otherwise sendToCustomer=false.
+10. ALWAYS set invoiceDueDate on orders — use the date from the prompt, or invoiceDate + 30 days as default.
+11. For multiple entities of same type: ALWAYS use batch /list endpoints (POST /department/list, POST /product/list) — fewer writes = higher score!
 
 ---
 
@@ -1101,7 +1105,7 @@ def resolve_placeholders(value, results):
     return value
 
 
-def execute_api_calls(calls, base_url, session_token, original_prompt=""):
+def execute_api_calls(calls, base_url, session_token, original_prompt="", env_info=None):
     """Execute a sequence of Tripletex API calls."""
     auth = ("0", session_token)
     results = []
@@ -1275,7 +1279,7 @@ def execute_api_calls(calls, base_url, session_token, original_prompt=""):
                     fix = try_fix_call(
                         call, error_text, base_url, auth, results,
                         all_calls=calls, call_index=i,
-                        original_prompt=original_prompt
+                        original_prompt=original_prompt, env_info=env_info
                     )
                     if fix and isinstance(fix, dict) and "first_result" in fix:
                         # Replace the failed result with the fixed one
@@ -1309,7 +1313,7 @@ def execute_api_calls(calls, base_url, session_token, original_prompt=""):
 
 
 def try_fix_call(original_call, error_text, base_url, auth, results,
-                  all_calls=None, call_index=0, original_prompt=""):
+                  all_calls=None, call_index=0, original_prompt="", env_info=None):
     """Ask Gemini to replan the remaining API calls given full context.
 
     Sends: original task, results so far, the failed call + error, and remaining planned calls.
@@ -1344,9 +1348,16 @@ def try_fix_call(original_call, error_text, base_url, auth, results,
     if all_calls and call_index + 1 < len(all_calls):
         remaining_calls = all_calls[call_index + 1:]
 
-    fix_prompt = f"""You are fixing a failed Tripletex API call sequence.
+    # Build environment context for retry
+    env_context = ""
+    if env_info:
+        key_ids = {k: v for k, v in env_info.items() if isinstance(v, (int, float)) and not k.startswith("all_")}
+        env_context = f"\n\nAVAILABLE ENVIRONMENT IDs (use directly, no GET needed):\n{json.dumps(key_ids, indent=1)[:2000]}"
 
-ORIGINAL TASK: {original_prompt[:2000]}
+    fix_prompt = f"""You are fixing a failed Tripletex API call sequence.
+CRITICAL: All id fields MUST be integers (not strings). All amounts MUST be numbers.
+
+ORIGINAL TASK: {original_prompt[:2000]}{env_context}
 
 RESULTS SO FAR (calls 0 to {len(results)-2} succeeded, call {call_index} failed):
 {chr(10).join(results_summary[:-1]) if len(results_summary) > 1 else "No previous calls."}
@@ -2288,7 +2299,7 @@ Task: {prompt}"""
 
     # Execute
     try:
-        results = execute_api_calls(calls, base_url, session_token, original_prompt=prompt)
+        results = execute_api_calls(calls, base_url, session_token, original_prompt=prompt, env_info=env_info)
         # Log summary
         successes = sum(1 for r in results if r and not (isinstance(r, dict) and "error" in r))
         failures = len(results) - successes
