@@ -16,7 +16,7 @@ from google import genai
 
 # --- Config ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-2.5-pro")
 
 # --- Init ---
 logging.basicConfig(level=logging.INFO)
