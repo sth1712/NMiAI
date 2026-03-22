@@ -699,7 +699,7 @@ NOTE: Replace DEPARTMENT_ID and COMPANY_ID with values from ENVIRONMENT. Just 2 
 
 ### Create customer (INCLUDE ALL FIELDS from prompt!)
 [
-  {"method": "POST", "path": "/customer", "body": {"name": "Firma AS", "email": "post@firma.no", "organizationNumber": "912345678", "isCustomer": true, "phoneNumber": "22334455", "invoiceEmail": "faktura@firma.no", "postalAddress": {"addressLine1": "Storgata 10", "postalCode": "0182", "city": "Oslo"}}}
+  {"method": "POST", "path": "/customer", "body": {"name": "Firma AS", "email": "post@firma.no", "organizationNumber": "912345678", "isCustomer": true, "phoneNumber": "22334455", "invoiceEmail": "faktura@firma.no", "language": "NO", "postalAddress": {"addressLine1": "Storgata 10", "postalCode": "0182", "city": "Oslo"}}}
 ]
 NOTE: Include ALL fields from prompt: postalAddress, phoneNumber, invoiceEmail, language ("NO"/"EN"). Every missing field = lost points!
 
