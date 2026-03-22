@@ -411,8 +411,8 @@ ALWAYS also create the voucher/bilag part of the task — partial credit is bett
 
 Common accounts: 1920=Bankinnskudd, 2400=Leverandørgjeld, 2700=Utg MVA høy, 2710=Inng MVA høy, 3000=Salgsinntekt, 6800=Kontorrekvisita, 6900=Telefon, 7100=Kontortjenester
 
-### GET /ledger/account
-Search by number: ?numberFrom=7100&numberTo=7100&fields=id,number,name
+### Ledger accounts — ALL are in ENVIRONMENT!
+Use account_XXXX_id from ENVIRONMENT directly. Do NOT call GET /ledger/account — all IDs are pre-fetched.
 
 ## 12. SUPPLIER INVOICE (leverandørfaktura) — USE VOUCHER!
 
@@ -461,9 +461,20 @@ Required: travelExpense.id, rateCategory.id, date, departureLocation, destinatio
 NOTE: Do NOT include rateType — it causes errors. Just use rateCategory from GET /travelExpense/rateCategory.
 
 ### POST /travelExpense/perDiemCompensation
-For "diett" / "dagpenger" / "per diem" / "Tagegeld":
+For "diett" / "dagpenger" / "per diem" / "Tagegeld" / "ajudas de custo":
 Required: travelExpense.id, rateCategory.id, countryCode, overnightAccommodation, location, date
 NOTE: Do NOT include rateType — it causes errors. Just use rateCategory.
+
+Example — per diem for 3-day trip:
+[
+  {"method": "GET", "path": "/employee", "params": {"email": "ola@example.org", "fields": "id"}},
+  {"method": "POST", "path": "/travelExpense", "body": {"employee": {"id": "$PREV_0_ID"}, "title": "Kundebesøk", "date": "2026-03-20"}},
+  {"method": "GET", "path": "/travelExpense/rateCategory", "params": {"fields": "id,name", "count": 5}},
+  {"method": "POST", "path": "/travelExpense/perDiemCompensation", "body": {"travelExpense": {"id": "$PREV_1_ID"}, "rateCategory": {"id": "$PREV_2_ID"}, "countryCode": "NO", "overnightAccommodation": "HOTEL", "location": "Bergen", "date": "2026-03-20"}},
+  {"method": "POST", "path": "/travelExpense/perDiemCompensation", "body": {"travelExpense": {"id": "$PREV_1_ID"}, "rateCategory": {"id": "$PREV_2_ID"}, "countryCode": "NO", "overnightAccommodation": "HOTEL", "location": "Bergen", "date": "2026-03-21"}},
+  {"method": "POST", "path": "/travelExpense/perDiemCompensation", "body": {"travelExpense": {"id": "$PREV_1_ID"}, "rateCategory": {"id": "$PREV_2_ID"}, "countryCode": "NO", "overnightAccommodation": "NONE", "location": "Bergen", "date": "2026-03-22"}}
+]
+NOTE: One perDiemCompensation per DAY. Last day typically overnightAccommodation="NONE". countryCode="NO" for Norway.
 
 ### PUT /travelExpense/:createVouchers
 Create accounting vouchers from an approved travel expense.
@@ -494,6 +505,14 @@ After creating: add order lines with POST /purchaseOrder/orderline
 ### POST /purchaseOrder/orderline
 Required: purchaseOrder.id, product.id (or description), count, unitPrice
 For receiving goods: POST /purchaseOrder/goodsReceipt, then POST /purchaseOrder/goodsReceiptLine
+
+Example — purchase order with 2 products:
+[
+  {"method": "GET", "path": "/supplier", "params": {"organizationNumber": "987654321", "fields": "id,name"}},
+  {"method": "POST", "path": "/purchaseOrder", "body": {"deliveryDate": "2026-04-01", "orderDate": "2026-03-22", "supplier": {"id": "$PREV_0_ID"}, "ourContact": {"id": "EMPLOYEE_ID from ENVIRONMENT"}}},
+  {"method": "POST", "path": "/purchaseOrder/orderline", "body": {"purchaseOrder": {"id": "$PREV_1_ID"}, "description": "Kontorrekvisita", "count": 10, "unitPrice": 250.0}},
+  {"method": "POST", "path": "/purchaseOrder/orderline", "body": {"purchaseOrder": {"id": "$PREV_1_ID"}, "description": "Skrivere", "count": 2, "unitPrice": 3500.0}}
+]
 
 ## 20. EMPLOYEE ADDITIONAL
 
@@ -572,17 +591,14 @@ For year-end tasks (avskrivning, periodisering, skatteavsetning):
 2. Create vouchers with the CORRECT account IDs — NEVER use the same account for both debit and credit!
 3. CRITICAL: Each voucher must debit ONE account and credit a DIFFERENT account.
 
-Example: Depreciation of IT equipment (avskrivning):
-- Use account_6010_id from ENVIRONMENT for depreciation expense
-- Use account_1209_id from ENVIRONMENT for accumulated depreciation (DIFFERENT account!)
-- POST /ledger/voucher with postings:
-  - Row 1: account $PREV_0_ID (6010 debit), amount: +16575
-  - Row 2: account $PREV_1_ID (1209 credit), amount: -16575
-NOTE: $PREV_0_ID and $PREV_1_ID are DIFFERENT accounts! Row 1 uses the expense account, Row 2 uses the asset/liability account.
+Example: Depreciation of IT equipment 99450 NOK, 6 years (avskrivning):
+[
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2025-12-31", "description": "Avskrivning IT-utstyr 2025 (99450/6=16575)", "voucherType": {"id": "VOUCHER_TYPE_MANUAL_ID from ENVIRONMENT"}, "postings": [{"date": "2025-12-31", "account": {"id": "ACCOUNT_6010_ID from ENVIRONMENT"}, "amount": 16575.0, "amountCurrency": 16575.0, "amountGross": 16575.0, "amountGrossCurrency": 16575.0, "currency": {"id": 1}, "row": 1, "description": "Avskrivning 99450/6 år"}, {"date": "2025-12-31", "account": {"id": "ACCOUNT_1209_ID from ENVIRONMENT"}, "amount": -16575.0, "amountCurrency": -16575.0, "amountGross": -16575.0, "amountGrossCurrency": -16575.0, "currency": {"id": 1}, "row": 2, "description": "Akkumulert avskrivning"}]}}
+]
+NOTE: Use account IDs from ENVIRONMENT directly! NO GET calls needed. Use calculation: amount = cost / lifetime_years.
 
 For annual accounts / period closing:
-- GET /ledger/annualAccount — shows configured accounting years
-- Use account 8800 (årsresultat) and 2050 (egenkapital) for closing entries
+- Use account_8800_id (årsresultat) and account_2050_id (egenkapital) from ENVIRONMENT for closing entries
 
 ## 24. OTHER ENDPOINTS
 - ALL ledger accounts are in ENVIRONMENT — use account_XXXX_id directly
