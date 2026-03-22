@@ -1259,20 +1259,24 @@ def execute_api_calls(calls, base_url, session_token, original_prompt=""):
         # VALIDATION: Ensure nested ID fields are integers, not strings
         # Fixes "Verdien er ikke av korrekt type" errors on supplier.id, product.id, etc.
         if method in ("POST", "PUT") and body:
-            def fix_id_types(obj):
+            def fix_id_types(obj, path=""):
                 if isinstance(obj, dict):
                     for key, val in obj.items():
+                        current_path = f"{path}.{key}" if path else key
                         if isinstance(val, dict):
-                            fix_id_types(val)
+                            fix_id_types(val, current_path)
                         elif isinstance(val, list):
-                            for item in val:
+                            for idx, item in enumerate(val):
                                 if isinstance(item, dict):
-                                    fix_id_types(item)
+                                    fix_id_types(item, f"{current_path}[{idx}]")
                         elif key == "id" and isinstance(val, str):
                             try:
                                 obj[key] = int(val)
+                                logger.info(f"  fix_id_types: {current_path} '{val}' → {obj[key]}")
                             except (ValueError, TypeError):
-                                pass
+                                logger.warning(f"  fix_id_types: {current_path} has unresolvable string '{val}'")
+                        elif key == "id" and not isinstance(val, (int, float)):
+                            logger.warning(f"  fix_id_types: {current_path} unexpected type {type(val).__name__}: {val}")
                 return obj
             fix_id_types(body)
 
