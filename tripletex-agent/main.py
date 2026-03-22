@@ -415,12 +415,13 @@ POST creates opening balance entries. DELETE removes them.
 
 ### POST /travelExpense/mileageAllowance
 For "kjøregodtgjørelse" / "mileage allowance" / "Kilometergodtgjørelse":
-Required: travelExpense.id, rateType.id, rateCategory.id, date, departureLocation, destination, km
-Use GET /travelExpense/rateCategory to find available rate categories.
+Required: travelExpense.id, rateCategory.id, date, departureLocation, destination, km
+NOTE: Do NOT include rateType — it causes errors. Just use rateCategory from GET /travelExpense/rateCategory.
 
 ### POST /travelExpense/perDiemCompensation
 For "diett" / "dagpenger" / "per diem" / "Tagegeld":
-Required: travelExpense.id, rateType.id, rateCategory.id, countryCode, overnightAccommodation, location, date
+Required: travelExpense.id, rateCategory.id, countryCode, overnightAccommodation, location, date
+NOTE: Do NOT include rateType — it causes errors. Just use rateCategory.
 
 ### PUT /travelExpense/:createVouchers
 Create accounting vouchers from an approved travel expense.
@@ -1603,14 +1604,12 @@ async def solve(request: Request):
         )
         if acc_resp.status_code == 200 and acc_resp.json().get("values"):
             acc = acc_resp.json()["values"][0]
-            if not acc.get("bankAccountNumber"):
-                acc["bankAccountNumber"] = "15030100007"
-                bank_resp = http_requests.put(f"{base_url}/ledger/account/{acc['id']}", auth=auth, json=acc, timeout=10)
-                logger.info(f"Bank account configured: {bank_resp.status_code}")
-                if bank_resp.status_code >= 400:
-                    logger.warning(f"Bank account setup FAILED: {bank_resp.text[:500]}")
-            else:
-                logger.info(f"Bank account already has number: {acc.get('bankAccountNumber')}")
+            # ALWAYS set bank account number — some sandboxes have invalid/empty values
+            acc["bankAccountNumber"] = "15030100007"
+            bank_resp = http_requests.put(f"{base_url}/ledger/account/{acc['id']}", auth=auth, json=acc, timeout=10)
+            logger.info(f"Bank account configured: {bank_resp.status_code}")
+            if bank_resp.status_code >= 400:
+                logger.warning(f"Bank account setup FAILED: {bank_resp.text[:500]}")
             env_info["bank_configured"] = True
 
         # 4. Get invoice payment types
