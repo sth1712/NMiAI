@@ -1652,23 +1652,32 @@ async def solve(request: Request):
         # 3b. Set bank account on COMPANY level (required for invoice creation!)
         if env_info.get("company_id"):
             try:
+                # GET with minimal fields to avoid read-only field issues on PUT
                 comp_resp = http_requests.get(
                     f"{base_url}/company/{env_info['company_id']}",
                     auth=auth,
-                    params={"fields": "*"},
+                    params={"fields": "id,name,organizationNumber,bankAccountNumber,version"},
                     timeout=10
                 )
                 if comp_resp.status_code == 200:
                     comp_data = comp_resp.json().get("value", {})
                     if not comp_data.get("bankAccountNumber"):
-                        comp_data["bankAccountNumber"] = "15030100007"
+                        # PUT with only writable fields
+                        put_body = {
+                            "id": comp_data.get("id"),
+                            "name": comp_data.get("name"),
+                            "bankAccountNumber": "15030100007",
+                            "version": comp_data.get("version"),
+                        }
                         comp_put = http_requests.put(
                             f"{base_url}/company/{env_info['company_id']}",
                             auth=auth,
-                            json=comp_data,
+                            json=put_body,
                             timeout=10
                         )
                         logger.info(f"Company bank account: {comp_put.status_code}")
+                        if comp_put.status_code >= 400:
+                            logger.warning(f"Company bank PUT error: {comp_put.text[:300]}")
                     else:
                         logger.info(f"Company already has bank account: {comp_data.get('bankAccountNumber')}")
             except Exception as e:
