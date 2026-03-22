@@ -176,6 +176,8 @@ Then POST /employee/employment with:
     "occupationCode": {"id": 1}
   }]
 }
+CRITICAL for occupationCode: The id MUST be an integer! Use {"id": 1} as default if not known.
+Do NOT use $PREV reference for occupationCode.id — it often fails. Use id=1 (default) unless you found a specific code via GET.
 
 Key fields in employmentDetails:
 - employmentType: "ORDINARY" (standard), "MARITIME"
@@ -237,9 +239,10 @@ Creating an invoice requires this exact sequence:
 2. POST /product with priceExcludingVatCurrency and vatType.id (3 = 25% MVA)
 3. POST /order with customer.id, deliveryDate, orderDate. For project invoices: include project.id on the ORDER (NOT on orderline!)
 4. POST /order/orderline with order.id, product.id, count, unitPriceExcludingVatCurrency, vatType.id
-5. PUT /order/{orderId}/:invoice with query params: invoiceDate=YYYY-MM-DD, sendToCustomer=false
+5. PUT /order/{orderId}/:invoice with query params: invoiceDate=YYYY-MM-DD, sendToCustomer=true/false, invoiceDueDate=YYYY-MM-DD
 
 CRITICAL: Invoicing uses PUT /order/{id}/:invoice — NOT POST /invoice!
+CRITICAL: ALWAYS set invoiceDueDate = invoiceDate + 30 days. If prompt says "send"/"sende"/"enviar"/"envoyer", set sendToCustomer=true!
 CRITICAL: GET /invoice REQUIRES invoiceDateFrom and invoiceDateTo params! Always include: invoiceDateFrom=2020-01-01, invoiceDateTo=2030-12-31
 
 ### POST /order
@@ -247,7 +250,7 @@ Required: customer.id, deliveryDate, orderDate
 Optional: project.id (for project invoicing — set HERE, not on orderline)
 
 ### POST /order/orderline
-Required: order.id, product.id, count, unitPriceExcludingVatCurrency, vatType.id
+Required: order.id, product.id, count, unitPriceExcludingVatCurrency, vatType.id, description (ALWAYS include — use product/service name from prompt!)
 Optional: description
 
 ### PUT /order/{orderId}/:invoice — CREATE INVOICE
@@ -324,7 +327,7 @@ If the task says "create an activity for each project", create the activities se
 Required: name
 Optional: departmentNumber (string, e.g. "200")
 
-## 10. SALARY (PAYROLL)
+## 10. SALARY (PAYROLL) — CRITICAL: READ CAREFULLY!
 
 CRITICAL: NEVER use POST /salary/payslip or POST /salary/transaction — they ALWAYS return 500/403! Use POST /ledger/voucher with voucherType "Lønnsbilag" instead!
 
@@ -332,18 +335,21 @@ CRITICAL: NEVER use POST /salary/payslip or POST /salary/transaction — they AL
 This is the CORRECT approach when the salary module is not available:
 POST /ledger/voucher with voucherType "Lønnsbilag" and postings for salary accounts.
 
-Common salary accounts:
-- 5000 = Lønn (debit — the salary cost)
-- 2930 = Skyldig lønn / Gjeld til ansatte (credit — what's owed)
-- 2600 = Skattetrekk (credit — tax withholding)
-- 2770 = Arbeidsgiveravgift (credit)
+SALARY RULES — choose the right pattern:
+A) SIMPLE salary (no tax/AGA mentioned): 2 postings — debit 5000, credit 2930
+B) SALARY WITH TAX (skattetrekk mentioned): 3 postings — debit 5000 (gross), credit 2600 (tax=gross×rate), credit 2930 (net=gross-tax)
+C) SALARY WITH TAX + AGA: Pattern B + SEPARATE voucher for AGA — debit 5400 (AGA=gross×0.141), credit 2770
 
-Example for salary 49550 kr:
+CRITICAL: If prompt mentions skattetrekk/tax rate AND AGA: create TWO vouchers!
+Voucher 1: salary with tax withholding (5000/2600/2930)
+Voucher 2: employer tax AGA (5400/2770)
+
+Example for SIMPLE salary 49550 kr (pattern A):
 POST /ledger/voucher with:
-- voucherType: {"id": VOUCHER_TYPE_LONNSBILAG_ID from ENVIRONMENT or GET /ledger/voucherType}
+- voucherType: VOUCHER_TYPE_SALARY_ID from ENVIRONMENT
 - postings: [
-    {account: 5000, amount: 49550, row: 1, description: "Fastlønn"},
-    {account: 2930, amount: -49550, row: 2, description: "Skyldig lønn"}
+    {account: ACCOUNT_5000_ID, amount: 49550, row: 1, description: "Fastlønn"},
+    {account: ACCOUNT_2930_ID, amount: -49550, row: 2, description: "Skyldig lønn"}
   ]
 
 For salary + bonus (49550 + 8300):
