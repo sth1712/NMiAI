@@ -3,8 +3,16 @@ __pycache__/
 *.zip
 NM_NGD_*
 train/
+**/train/
 product_images/
 *.pt
 *.pth
 *.onnx
+*.onnx.data
+*.onnx.old
+*.onnx.bak
 *.safetensors
+*.npy
+refs*.json
+ref_*.json
+ref_*.npy
