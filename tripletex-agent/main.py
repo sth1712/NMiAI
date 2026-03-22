@@ -93,6 +93,17 @@ Even if you're unsure about exact field names, try with reasonable guesses — t
 - Dates: "YYYY-MM-DD", default today's date if not specified
 - Due dates for invoices: default 30 days after invoice date
 
+## CALCULATION FORMULAS — USE THESE EXACTLY!
+- MVA 25%: If amount is "inkl MVA": netto = brutto / 1.25, MVA = brutto - netto. Example: 12500 inkl MVA → netto=10000, MVA=2500
+- MVA 15% (food): netto = brutto / 1.15, MVA = brutto - netto
+- Linear depreciation (annual): amount = acquisitionCost / lifetimeYears. Example: 240000 / 5 = 48000 per year
+- Linear depreciation (monthly): amount = acquisitionCost / lifetimeYears / 12. Example: 240000 / 5 / 12 = 4000 per month
+- Tax provision 22%: taxAmount = taxableProfit * 0.22
+- Employer tax (AGA) 14.1%: agaAmount = grossSalary * 0.141
+- Tax withholding: taxAmount = grossSalary * taxRate (e.g. 38% = 0.38)
+- Net salary: netSalary = grossSalary - taxWithholding
+- Exchange rate difference: diff = amount * (newRate - oldRate). Positive = agio (gain), negative = disagio (loss)
+
 ## TOP RULES — VIOLATING THESE = 0 POINTS
 1. Voucher postings: debit and credit MUST use DIFFERENT account IDs. NEVER same account on both rows.
 2. Fields syntax: use PARENTHESES for nested fields: customer(id,name) — NEVER customer.id
@@ -629,23 +640,10 @@ Prompt: "Opprett ansatt Kari Nordmann, kari@example.org. Hun skal være kontoadm
 ]
 NOTE: Replace DEPARTMENT_ID and COMPANY_ID with values from ENVIRONMENT. Just 2 calls instead of 4!
 
-### Create customer
-Prompt: "Opprett en kunde Test AS med e-post test@test.no"
-[
-  {"method": "POST", "path": "/customer", "body": {"name": "Test AS", "email": "test@test.no", "isCustomer": true}}
-]
-
-### Create supplier
-Prompt: "Registrer leverandøren Bygg AS med orgnr 987654321"
-[
-  {"method": "POST", "path": "/supplier", "body": {"name": "Bygg AS", "organizationNumber": "987654321"}}
-]
-
-### Create customer+supplier combo
-Prompt: "Opprett Firma AS som både kunde og leverandør"
-[
-  {"method": "POST", "path": "/customer", "body": {"name": "Firma AS", "isCustomer": true, "isSupplier": true}}
-]
+### Create customer/supplier (simple — 1 call each)
+- Customer: POST /customer with name, email, isCustomer:true, organizationNumber, postalAddress
+- Supplier: POST /supplier with name, email, organizationNumber
+- Both: POST /customer with isCustomer:true, isSupplier:true
 
 ## Tier 2: Multi-step & modification tasks
 
@@ -665,72 +663,20 @@ Same for customers with organization numbers — search first!
 ]
 NOTE: All entities found by GET, not created. Products searched by number. Customer by organizationNumber. Only 8 calls.
 
-### Create invoice (when entities DON'T exist — create them)
-Prompt: "Lag en faktura til kunde Acme AS for 2 timer konsulentarbeid à 1200 NOK"
+### Register payment on EXISTING invoice (common!)
+CRITICAL: GET /invoice REQUIRES invoiceDateFrom and invoiceDateTo params!
 [
-  {"method": "POST", "path": "/customer", "body": {"name": "Acme AS", "isCustomer": true}},
-  {"method": "POST", "path": "/product", "body": {"name": "Konsulentarbeid", "number": "1001", "priceExcludingVatCurrency": 1200.0, "vatType": {"id": 3}}},
-  {"method": "POST", "path": "/order", "body": {"customer": {"id": "$PREV_0_ID"}, "deliveryDate": "2026-03-20", "orderDate": "2026-03-20"}},
-  {"method": "POST", "path": "/order/orderline", "body": {"order": {"id": "$PREV_2_ID"}, "product": {"id": "$PREV_1_ID"}, "count": 2, "unitPriceExcludingVatCurrency": 1200.0, "vatType": {"id": 3}}},
-  {"method": "PUT", "path": "/order/$PREV_2_ID/:invoice", "params": {"invoiceDate": "2026-03-20", "sendToCustomer": "false"}}
+  {"method": "GET", "path": "/invoice", "params": {"invoiceDateFrom": "2020-01-01", "invoiceDateTo": "2030-12-31", "fields": "id,amount,amountOutstanding,customer(id,name)"}},
+  {"method": "PUT", "path": "/invoice/$PREV_0_ID/:payment", "params": {"paymentDate": "2026-03-22", "paymentTypeId": "PAYMENT_TYPE_BANK_ID from ENVIRONMENT", "paidAmount": "$PREV_0_FIELD_amount"}}
 ]
 
-### Register payment on EXISTING invoice (Tier 2 — common!)
-Prompt: "Customer X has outstanding invoice. Register full payment."
-IMPORTANT: The invoice ALREADY EXISTS. Do NOT create customer/product/order. Just find and pay it.
-CRITICAL: GET /invoice REQUIRES invoiceDateFrom and invoiceDateTo params! Use a wide range like "2020-01-01" to "2030-12-31".
-[
-  {"method": "GET", "path": "/invoice", "params": {"invoiceDateFrom": "2020-01-01", "invoiceDateTo": "2030-12-31", "fields": "id,amount,amountOutstanding,customer"}},
-  {"method": "PUT", "path": "/invoice/$PREV_0_ID/:payment", "params": {"paymentDate": "2026-03-20", "paymentTypeId": "PAYMENT_TYPE_BANK_ID", "paidAmount": "$PREV_0_FIELD_amount"}}
-]
-NOTE: Replace PAYMENT_TYPE_BANK_ID with invoice_payment_type_bank_id from ENVIRONMENT section.
+### Update entity (GET fields=* → PUT with $MERGE_PREV)
+Any entity: GET /entity?search_params&fields=* → PUT /entity/$PREV_0_ID with {"_merge": "$MERGE_PREV_0", ...changes}
+For employee PUT: ALWAYS include dateOfBirth (use "1990-01-01" if not specified)
 
-### Create NEW invoice and register payment
-Prompt: "Fakturér kunde Test AS for produkt X og registrer betaling"
-[
-  {"method": "POST", "path": "/customer", "body": {"name": "Test AS", "isCustomer": true}},
-  {"method": "POST", "path": "/product", "body": {"name": "Produkt X", "number": "2001", "priceExcludingVatCurrency": 500.0, "vatType": {"id": 3}}},
-  {"method": "POST", "path": "/order", "body": {"customer": {"id": "$PREV_0_ID"}, "deliveryDate": "2026-03-20", "orderDate": "2026-03-20"}},
-  {"method": "POST", "path": "/order/orderline", "body": {"order": {"id": "$PREV_2_ID"}, "product": {"id": "$PREV_1_ID"}, "count": 1, "unitPriceExcludingVatCurrency": 500.0, "vatType": {"id": 3}}},
-  {"method": "PUT", "path": "/order/$PREV_2_ID/:invoice", "params": {"invoiceDate": "2026-03-20", "sendToCustomer": "false"}},
-  {"method": "PUT", "path": "/invoice/$PREV_4_ID/:payment", "params": {"paymentDate": "2026-03-20", "paymentTypeId": "PAYMENT_TYPE_BANK_ID", "paidAmount": "625.0"}}
-]
-NOTE: This example also uses PAYMENT_TYPE_BANK_ID from the environment.
-
-### Update employee
-Prompt: "Oppdater ansatten Erik med mobilnummer 41122334"
-[
-  {"method": "GET", "path": "/employee", "params": {"firstName": "Erik", "fields": "*"}},
-  {"method": "PUT", "path": "/employee/$PREV_0_ID", "body": {"_merge": "$MERGE_PREV_0", "phoneNumberMobile": "41122334", "dateOfBirth": "1990-01-01"}}
-]
-
-### Update customer
-Prompt: "Endre e-posten til kunden Acme AS til ny@acme.no"
-[
-  {"method": "GET", "path": "/customer", "params": {"name": "Acme AS", "fields": "*"}},
-  {"method": "PUT", "path": "/customer/$PREV_0_ID", "body": {"_merge": "$MERGE_PREV_0", "email": "ny@acme.no"}}
-]
-
-### Delete travel expense
-Prompt: "Slett reiseregning med id 12345"
-[
-  {"method": "DELETE", "path": "/travelExpense/12345"}
-]
-
-### Delete travel expense by search
-Prompt: "Slett reiseregningen til ansatt Erik Nordmann"
-[
-  {"method": "GET", "path": "/employee", "params": {"firstName": "Erik", "lastName": "Nordmann", "fields": "id"}},
-  {"method": "GET", "path": "/travelExpense", "params": {"employeeId": "$PREV_0_ID", "fields": "id"}},
-  {"method": "DELETE", "path": "/travelExpense/$PREV_1_ID"}
-]
-
-### Create contact person
-Prompt: "Legg til kontaktperson Per Hansen (per@firma.no) hos kunden Acme AS"
-[
-  {"method": "GET", "path": "/customer", "params": {"name": "Acme AS", "fields": "id"}},
-  {"method": "POST", "path": "/contact", "body": {"firstName": "Per", "lastName": "Hansen", "email": "per@firma.no", "customer": {"id": "$PREV_0_ID"}}}
-]
+### Delete entity
+GET entity first, then DELETE /entity/$PREV_ID. Works for /travelExpense, /customer, /product, /order (not invoiced).
+NOT for /invoice (use credit note) or /employee (use PUT to deactivate).
 
 ### Create project with project manager (uses ENVIRONMENT values)
 Prompt: "Opprett prosjekt Omega med ansatt Kari som prosjektleder"
@@ -786,16 +732,13 @@ Prompt: "Registrer 7.5 timer for den innloggede brukeren i dag"
 NOTE: Use employee_id from ENVIRONMENT for "innlogget bruker"/"current user". Just 1 call!
 
 ## Tier 2: Payroll (use voucher, NOT salary module!)
-### Run payroll for employee
+### Run payroll — uses ENVIRONMENT directly, 0 GET calls!
 Prompt: "Kjør lønn for Randi Haugen. Grunnlønn 49550 kr + engangsbonus 8300 kr"
-IMPORTANT: POST /salary/payslip returns 403. Use POST /ledger/voucher with voucherType "Lønnsbilag" instead!
+IMPORTANT: POST /salary/payslip returns 403. Use POST /ledger/voucher with VOUCHER_TYPE_SALARY_ID from ENVIRONMENT!
 [
-  {"method": "GET", "path": "/ledger/voucherType", "params": {"fields": "id,name"}},
-  {"method": "GET", "path": "/ledger/account", "params": {"numberFrom": "5000", "numberTo": "5000", "fields": "id,number,name"}},
-  {"method": "GET", "path": "/ledger/account", "params": {"numberFrom": "2930", "numberTo": "2930", "fields": "id,number,name"}},
-  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-20", "description": "Lønn mars 2026 - Randi Haugen (49550 + 8300 bonus)", "voucherType": {"id": "VOUCHER_TYPE_LONNSBILAG_ID"}, "postings": [{"date": "2026-03-20", "account": {"id": "$PREV_1_ID"}, "amount": 57850.0, "amountCurrency": 57850.0, "amountGross": 57850.0, "amountGrossCurrency": 57850.0, "currency": {"id": 1}, "row": 1, "description": "Fastlønn 49550 + bonus 8300"}, {"date": "2026-03-20", "account": {"id": "$PREV_2_ID"}, "amount": -57850.0, "amountCurrency": -57850.0, "amountGross": -57850.0, "amountGrossCurrency": -57850.0, "currency": {"id": 1}, "row": 2, "description": "Skyldig lønn"}]}}
+  {"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-03-22", "description": "Lønn mars 2026 - Randi Haugen (49550 + 8300 bonus)", "voucherType": {"id": "VOUCHER_TYPE_SALARY_ID from ENVIRONMENT"}, "postings": [{"date": "2026-03-22", "account": {"id": "ACCOUNT_5000_ID from ENVIRONMENT"}, "amount": 57850.0, "amountCurrency": 57850.0, "amountGross": 57850.0, "amountGrossCurrency": 57850.0, "currency": {"id": 1}, "row": 1, "description": "Fastlønn 49550 + bonus 8300"}, {"date": "2026-03-22", "account": {"id": "ACCOUNT_2930_ID from ENVIRONMENT"}, "amount": -57850.0, "amountCurrency": -57850.0, "amountGross": -57850.0, "amountGrossCurrency": -57850.0, "currency": {"id": 1}, "row": 2, "description": "Skyldig lønn"}]}}
 ]
-NOTE: Use account IDs from ENVIRONMENT when available. VoucherType for Lønnsbilag from ENVIRONMENT.
+NOTE: Just 1 write call! All IDs from ENVIRONMENT. SALARY_ID for lønnsbilag, ACCOUNT_5000_ID and ACCOUNT_2930_ID for accounts.
 
 ## Tier 2: Credit note
 ### Create credit note for existing invoice
@@ -948,29 +891,9 @@ IMPORTANT: Use voucher_type_manual_id from ENVIRONMENT for ALL correction vouche
 ]
 NOTE: Look up EACH account separately so you get DIFFERENT IDs for debit and credit. Use $PREV_0_ID and $PREV_1_ID to reference them correctly.
 
-## Update and delete — additional types
-### Update supplier
-Prompt: "Oppdater leverandør Staples med ny e-post innkjop@staples.no"
-[
-  {"method": "GET", "path": "/supplier", "params": {"name": "Staples", "fields": "*"}},
-  {"method": "PUT", "path": "/supplier/$PREV_0_ID", "body": {"_merge": "$MERGE_PREV_0", "email": "innkjop@staples.no"}}
-]
-
-### Delete project
-Prompt: "Slett prosjektet Gamma"
-[
-  {"method": "GET", "path": "/project", "params": {"name": "Gamma", "fields": "id"}},
-  {"method": "DELETE", "path": "/project/$PREV_0_ID"}
-]
-NOTE: DELETE /project may return 422 if project has orders/vouchers. Cannot force-delete.
-
-### Delete department
-Prompt: "Slett avdelingen Logistikk"
-[
-  {"method": "GET", "path": "/department", "params": {"query": "Logistikk", "fields": "id,name"}},
-  {"method": "DELETE", "path": "/department/$PREV_0_ID"}
-]
-NOTE: Use "query" parameter (not "name") for department search — it's more robust.
+## Update and delete — additional notes
+- For department search: use "query" parameter (not "name") — it's more robust.
+- DELETE /project may return 422 if project has orders/vouchers attached.
 
 ## Tier 3: Accounting dimensions (fri regnskapsdimensjon)
 Prompt: "Opprett en fri regnskapsdimensjon kalt 'Region' med verdiene 'Nord', 'Sør' og 'Vest'. Bokfør 15000 kr på konto 6800 fordelt på region Nord."
@@ -2203,7 +2126,7 @@ Since department_id, company_id, account IDs and other IDs are already known, yo
         response = client.models.generate_content(
             model=MODEL_NAME,
             contents=content_parts,
-            config={"temperature": 0.1, "max_output_tokens": 16384},
+            config={"temperature": 0.2, "max_output_tokens": 16384},
         )
         raw_text = response.text.strip()
         logger.info(f"Gemini raw response length: {len(raw_text)}")
