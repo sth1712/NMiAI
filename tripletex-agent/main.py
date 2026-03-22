@@ -72,7 +72,9 @@ Therefore:
 | Delete/reverse | "Delete travel expense" | GET /entity → DELETE /entity/{id} |
 | Multi-step setup | "Register payment" | GET /customer → GET /product → POST /order → POST /invoice |
 
-CRITICAL RULE: When the prompt references EXISTING entities (customer name, org number, product number, invoice), ALWAYS use GET to find them. The competition sandbox has pre-populated data specific to each task. These entities ALREADY EXIST — do NOT create them!
+CRITICAL RULE: When the prompt references EXISTING entities (customer name, org number, product number, invoice, employee email), ALWAYS use GET to find them. The competition sandbox has pre-populated data specific to each task. These entities ALREADY EXIST — do NOT create them!
+CRITICAL: If POST /employee returns "email already exists" (422), the employee is ALREADY in the system. Use GET /employee?email=X to find them instead of creating.
+CRITICAL: For cost analysis tasks ("total costs increased"), create projects with POST /project. Do NOT try to put "project" or "projectId" fields on ledger postings — those fields don't exist on postings!
 
 ## Batch endpoints — use for multiple entities
 When creating MULTIPLE entities of the same type, use list endpoints for fewer write calls:
@@ -2021,13 +2023,17 @@ Since department_id, company_id, account IDs and other IDs are already known, yo
     # === TWO-STEP PREFETCH: Get customer/product IDs BEFORE Gemini call ===
     invoice_prefetch_context = ""
     prompt_lower = prompt.lower()
-    is_invoice_task = any(kw in prompt_lower for kw in [
+    is_prefetch_task = any(kw in prompt_lower for kw in [
         "faktura", "invoice", "rechnung", "factura", "fatura",
         "ordre", "order", "bestilling",
         "fakturere", "fakturering", "invoicing",
+        "projekt", "project", "prosjekt", "proyecto", "projet",
+        "timer", "hours", "stunden", "horas", "heures",
+        "lønn", "salary", "gehalt", "salario", "salaire", "nómina",
+        "leverand", "supplier", "lieferant", "fornecedor", "proveedor", "fournisseur",
     ])
 
-    if is_invoice_task and env_info.get("company_id"):
+    if is_prefetch_task and env_info.get("company_id"):
         logger.info("Invoice task detected — running two-step prefetch")
         prefetch_results = []
 
@@ -2094,10 +2100,56 @@ Since department_id, company_id, account IDs and other IDs are already known, yo
                 except Exception:
                     pass
 
+        # 4. Prefetch employees by email (prevents "email already exists" errors)
+        email_matches = re.findall(r'[\w.+-]+@[\w-]+\.[\w.]+', prompt)
+        for email in set(email_matches):
+            try:
+                emp_resp = http_requests.get(
+                    f"{base_url}/employee", auth=auth,
+                    params={"email": email, "fields": "id,firstName,lastName,email", "count": 3},
+                    timeout=10,
+                )
+                if emp_resp.status_code == 200:
+                    emp_values = emp_resp.json().get("values", [])
+                    if emp_values:
+                        e = emp_values[0]
+                        prefetch_results.append(
+                            f"EMPLOYEE (email {email}): id={e['id']}, name=\"{e.get('firstName', '')} {e.get('lastName', '')}\""
+                            f" — ALREADY EXISTS, use this id, do NOT create a new employee!"
+                        )
+                        logger.info(f"  Prefetch employee email={email} → id={e['id']}")
+            except Exception:
+                pass
+
+        # 5. Prefetch existing invoices if task mentions payment/credit/reversal
+        if any(kw in prompt_lower for kw in ["betaling", "payment", "zahlung", "pago", "pagamento", "paiement",
+                                               "kreditnota", "credit note", "avoir", "nota de crédito",
+                                               "reverser", "reverse", "stornieren", "revertir"]):
+            try:
+                inv_resp = http_requests.get(
+                    f"{base_url}/invoice", auth=auth,
+                    params={"invoiceDateFrom": "2020-01-01", "invoiceDateTo": "2030-12-31",
+                            "fields": "id,invoiceNumber,amount,amountOutstanding,customer(id,name)", "count": 20},
+                    timeout=10,
+                )
+                if inv_resp.status_code == 200:
+                    inv_values = inv_resp.json().get("values", [])
+                    if inv_values:
+                        for inv in inv_values[:5]:
+                            cust_name = inv.get("customer", {}).get("name", "unknown") if inv.get("customer") else "unknown"
+                            prefetch_results.append(
+                                f"INVOICE id={inv['id']}, number={inv.get('invoiceNumber', 'N/A')}, "
+                                f"amount={inv.get('amount', 0)}, outstanding={inv.get('amountOutstanding', 0)}, "
+                                f"customer=\"{cust_name}\""
+                            )
+                        logger.info(f"  Prefetch invoices: {len(inv_values)} found")
+            except Exception:
+                pass
+
         if prefetch_results:
             invoice_prefetch_context = "\n\n## PRE-FETCHED DATA (use these IDs directly — do NOT call GET for them!)\n"
             invoice_prefetch_context += "\n".join(f"- {r}" for r in prefetch_results)
-            invoice_prefetch_context += "\nIMPORTANT: Use these IDs directly in your API calls. Skip GET calls for entities listed above."
+            invoice_prefetch_context += "\nIMPORTANT: Use these IDs directly. For employees marked ALREADY EXISTS, use their id — do NOT create a new employee with POST!"
             logger.info(f"  Prefetch: {len(prefetch_results)} entities found")
     # === END TWO-STEP PREFETCH ===
 
