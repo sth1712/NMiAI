@@ -671,10 +671,10 @@ Same for customers with organization numbers — search first!
   {"method": "POST", "path": "/order", "body": {"customer": {"id": "$PREV_0_ID"}, "deliveryDate": "2026-03-20", "orderDate": "2026-03-20"}},
   {"method": "POST", "path": "/order/orderline", "body": {"order": {"id": "$PREV_3_ID"}, "product": {"id": "$PREV_1_ID"}, "count": 1, "unitPriceExcludingVatCurrency": 39600.0, "vatType": {"id": 3}}},
   {"method": "POST", "path": "/order/orderline", "body": {"order": {"id": "$PREV_3_ID"}, "product": {"id": "$PREV_2_ID"}, "count": 1, "unitPriceExcludingVatCurrency": 14550.0, "vatType": {"id": 3}}},
-  {"method": "PUT", "path": "/order/$PREV_3_ID/:invoice", "params": {"invoiceDate": "2026-03-20", "sendToCustomer": "false"}},
+  {"method": "PUT", "path": "/order/$PREV_3_ID/:invoice", "params": {"invoiceDate": "2026-03-20", "invoiceDueDate": "2026-04-19", "sendToCustomer": "false"}},
   {"method": "PUT", "path": "/invoice/$PREV_6_ID/:payment", "params": {"paymentDate": "2026-03-20", "paymentTypeId": "PAYMENT_TYPE_BANK_ID", "paidAmount": "54150.0"}}
 ]
-NOTE: All entities found by GET, not created. Products searched by number. Customer by organizationNumber. Only 8 calls.
+NOTE: ALWAYS include invoiceDueDate (invoiceDate + 30 days). Products searched by number. Customer by organizationNumber.
 
 ### Register payment on EXISTING invoice (common!)
 CRITICAL: GET /invoice REQUIRES invoiceDateFrom and invoiceDateTo params!
@@ -1266,7 +1266,7 @@ def execute_api_calls(calls, base_url, session_token, original_prompt="", env_in
             elif method == "PUT":
                 # Special PUT endpoints use query params instead of body
                 # e.g. /order/{id}/:invoice, /invoice/{id}/:payment, /invoice/{id}/:createCreditNote
-                if any(action in path for action in ['/:invoice', '/:payment', '/:createCreditNote', '/:createReminder', '/:send']):
+                if any(action in path for action in ['/:invoice', '/:payment', '/:createCreditNote', '/:createReminder', '/:send', '/:reverse', '/:createVouchers']):
                     resp = http_requests.put(url, auth=auth, params=params, timeout=30)
                 else:
                     resp = http_requests.put(url, auth=auth, json=body, timeout=30)
@@ -1504,7 +1504,7 @@ IMPORTANT: Return ONLY a valid JSON array. No markdown, no explanation, no comme
                     resp = http_requests.post(url, auth=auth, json=body, timeout=30)
                 elif method == "PUT":
                     if any(action in path for action in
-                           ['/:invoice', '/:payment', '/:createCreditNote', '/:createReminder', '/:send']):
+                           ['/:invoice', '/:payment', '/:createCreditNote', '/:createReminder', '/:send', '/:reverse', '/:createVouchers']):
                         resp = http_requests.put(url, auth=auth, params=params, timeout=30)
                     else:
                         resp = http_requests.put(url, auth=auth, json=body, timeout=30)
@@ -1906,7 +1906,7 @@ Travel expense cost categories (USE THESE IDs, not hardcoded ones!):
 - cost_cat_buss_id: {env_info.get('cost_cat_buss_id', 'unknown')}
 - all_cost_categories: {json.dumps(env_info.get('all_cost_categories', []))}
 LEDGER ACCOUNTS (use account_NUMBER_id format — ALL are pre-fetched, NO GET needed!):
-{chr(10).join(f'- account_{num}_id ({info["name"]}): {info["id"]}' for num, info in sorted(env_info.get('all_account_map', {}).items(), key=lambda x: int(x[0]))[:80])}
+{chr(10).join(f'- account_{num}_id ({info["name"]}): {info["id"]}' for num, info in sorted(env_info.get('all_account_map', {}).items(), key=lambda x: int(x[0])))}
 
 CRITICAL: Use the account IDs above directly — NEVER call GET /ledger/account! Every account in the chart is listed above.
 Match the account to the task: "kontorrekvisita"→6800, "kontortjenester"→6500/7100, "reisekostnad"→7140, etc.
@@ -2117,10 +2117,17 @@ INCLUDE EVERY FIELD from the prompt! Scoring is FIELD-BY-FIELD:
 
             replaced_count = 0
             for placeholder, real_value in replacements.items():
-                if real_value is not None and f'"{placeholder}"' in text:
-                    text = text.replace(f'"{placeholder}"', str(real_value))
-                    replaced_count += 1
-                    logger.info(f"  Replaced '{placeholder}' → {real_value}")
+                if real_value is not None:
+                    # Replace quoted version: "DEPARTMENT_ID" → 12345
+                    if f'"{placeholder}"' in text:
+                        text = text.replace(f'"{placeholder}"', str(real_value))
+                        replaced_count += 1
+                        logger.info(f"  Replaced '{placeholder}' → {real_value}")
+                    # Replace bare version: DEPARTMENT_ID → 12345 (fixes invalid JSON)
+                    if f': {placeholder}' in text or f':{placeholder}' in text:
+                        text = re.sub(rf':\s*{re.escape(placeholder)}\b', f': {real_value}', text)
+                        replaced_count += 1
+                        logger.info(f"  Replaced bare '{placeholder}' → {real_value}")
             if replaced_count > 0:
                 logger.info(f"  Total placeholders replaced: {replaced_count}")
 
