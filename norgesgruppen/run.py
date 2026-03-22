@@ -39,10 +39,14 @@ def get_args():
     return args
 
 
-def load_resnet_onnx(onnx_path):
-    """Last ResNet18 ONNX med GPU hvis tilgjengelig."""
+def load_feature_extractor(base_dir):
+    """Last feature extractor ONNX — ResNet50, ConvNeXt, eller ResNet18."""
     providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-    return ort.InferenceSession(str(onnx_path), providers=providers)
+    for name in ["resnet50_features.onnx", "convnext_features.onnx", "resnet18_features.onnx"]:
+        path = base_dir / name
+        if path.exists():
+            return ort.InferenceSession(str(path), providers=providers)
+    return None
 
 
 def load_refs(base_dir):
@@ -56,9 +60,10 @@ def load_refs(base_dir):
     if refs_indiv_json.exists():
         with open(str(refs_indiv_json)) as f:
             data = json.load(f)
+        dtype = np.float16 if data.get("dtype") == "float16" else np.float32
         ref_embs = np.frombuffer(
-            base64.b64decode(data["embeddings_b64"]), dtype=np.float32
-        ).reshape(data["shape"])
+            base64.b64decode(data["embeddings_b64"]), dtype=dtype
+        ).reshape(data["shape"]).astype(np.float32)  # cast to f32 for matmul
         ref_cat_ids = data["labels"]
         return ref_embs, ref_cat_ids
 
@@ -118,7 +123,7 @@ def run_ensemble(models, img_path, iou_thr=0.55, skip_box_thr=0.001):
     all_labels = []
 
     for yolo, imgsz in models:
-        results = yolo(str(img_path), verbose=False, imgsz=imgsz, conf=0.001, iou=0.7, max_det=1500, agnostic_nms=True)
+        results = yolo(str(img_path), verbose=False, imgsz=imgsz, conf=0.05, iou=0.7, max_det=1500, agnostic_nms=True)
         boxes, scores, labels = [], [], []
         for r in results:
             for box in r.boxes:
@@ -177,14 +182,12 @@ def main():
 
     use_ensemble = len(models) > 1
 
-    # Last ResNet + referanser
-    resnet_path = base_dir / "resnet18_features.onnx"
+    # Last feature extractor + referanser
     ref_embs, ref_cat_ids = load_refs(base_dir)
-    use_twostage = resnet_path.exists() and ref_embs is not None
+    feature_session = load_feature_extractor(base_dir)
+    use_twostage = feature_session is not None and ref_embs is not None
 
-    resnet_session = None
     if use_twostage:
-        resnet_session = load_resnet_onnx(resnet_path)
         transform_mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
         transform_std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
@@ -237,7 +240,7 @@ def main():
         else:
             # Single model
             yolo, imgsz = models[0]
-            results = yolo(str(img_path), verbose=False, imgsz=imgsz, conf=0.001, iou=0.7, max_det=1500, agnostic_nms=True)
+            results = yolo(str(img_path), verbose=False, imgsz=imgsz, conf=0.05, iou=0.7, max_det=1500, agnostic_nms=True)
             pil_img = Image.open(str(img_path)).convert("RGB")
 
             boxes_data = []
@@ -279,7 +282,7 @@ def main():
         all_embs = []
         for i in range(0, len(crops), BATCH_SIZE):
             batch = crops[i:i + BATCH_SIZE]
-            embs = resnet_embed_batch(resnet_session, batch, transform_mean, transform_std)
+            embs = resnet_embed_batch(feature_session, batch, transform_mean, transform_std)
             all_embs.append(embs)
 
         all_embs = np.concatenate(all_embs, axis=0)
@@ -314,7 +317,7 @@ def main():
             best_label = max(vote_scores, key=vote_scores.get)
             best_vote = vote_scores[best_label]
 
-            # Use ResNet category only if voting confidence is sufficient
+            # Use feature extractor if confident, else fall back to YOLO category
             category_id = best_label if best_vote > MIN_VOTE_THRESHOLD else yolo_cats[j]
 
             predictions.append({

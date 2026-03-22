@@ -21,7 +21,7 @@ import requests
 
 BASE = "https://api.ainm.no/astar-island"
 JWT_TOKEN = os.environ.get("JWT_TOKEN", "")
-MIN_FLOOR = 0.01  # REGELKRAV: minimum 0.01, ALDRI lavere
+MIN_FLOOR = 0.01  # Docs anbefaler 0.01. "costs almost nothing but protects against catastrophic KL blowups"
 DEAD_SETT_FOREST_RATIO = 0.316  # sf/(sf+se) share, NOT sf/se ratio. Avg R2-R8.
 
 
@@ -46,19 +46,28 @@ def cell_to_class(cell):
 # ============================================================
 
 FOREST_PROFILES = {
+    # 9 interpolation points from R2-R15 ground truth
     0.003: {1:[.026,.012,0,.001,.960,0],2:[.026,.005,0,.001,.968,0],3:[.026,0,0,.001,.973,0],4:[.026,0,0,.001,.973,0],5:[.026,0,0,.001,.973,0],6:[.026,0,0,.001,.973,0],7:[.026,0,0,.001,.973,0]},
     0.10:  {1:[.074,.131,.007,.009,.780,0],2:[.074,.122,.006,.009,.789,0],3:[.074,.111,.007,.009,.799,0],4:[.066,.092,.007,.010,.825,0],5:[.040,.055,.009,.007,.889,0],6:[.021,.040,.006,.005,.928,0],7:[.018,.020,.006,.005,.951,0]},
     0.136: {1:[.154,.249,.008,.025,.564,0],2:[.143,.215,.015,.022,.605,0],3:[.047,.112,.009,.013,.819,0],4:[.034,.079,.009,.009,.869,0],5:[.005,.019,.002,.003,.971,0],6:[.002,.008,.001,.001,.988,0],7:[0,0,0,0,1,0]},
+    0.147: {1:[.133,.183,.004,.022,.658,0],2:[.117,.163,.006,.018,.696,0],3:[.085,.123,.005,.014,.773,0],4:[.063,.093,.005,.011,.828,0],5:[.035,.057,.005,.007,.896,0],6:[.018,.037,.004,.005,.936,0],7:[.030,.048,.007,.006,.909,0]},  # R9
+    0.188: {1:[.126,.224,.004,.024,.623,0],2:[.113,.198,.005,.020,.664,0],3:[.097,.167,.005,.017,.714,0],4:[.081,.138,.006,.014,.761,0],5:[.056,.098,.006,.010,.830,0],6:[.035,.067,.005,.008,.885,0],7:[.024,.061,.009,.008,.898,0]},  # R15
     0.21:  {1:[.123,.237,.009,.019,.612,0],2:[.125,.230,.010,.021,.614,0],3:[.123,.214,.012,.020,.630,0],4:[.119,.206,.013,.020,.642,0],5:[.091,.204,.023,.015,.667,0],6:[.045,.163,.014,.012,.766,0],7:[.045,.114,.014,.012,.815,0]},
     0.265: {1:[.167,.315,.011,.035,.472,0],2:[.170,.287,.016,.036,.491,0],3:[.178,.259,.012,.037,.514,0],4:[.163,.234,.016,.036,.550,0],5:[.099,.208,.017,.029,.647,0],6:[.077,.178,.025,.027,.693,0],7:[.037,.114,.020,.012,.816,0]},
+    0.271: {1:[.172,.465,.012,.043,.309,0],2:[.155,.390,.010,.037,.408,0],3:[.140,.330,.009,.032,.489,0],4:[.120,.270,.008,.027,.575,0],5:[.080,.180,.007,.018,.715,0],6:[.050,.120,.005,.012,.813,0],7:[0,.005,0,0,.994,0]},  # R14
+    0.296: {1:[.117,.404,.013,.027,.439,0],2:[.110,.370,.012,.025,.483,0],3:[.100,.330,.011,.023,.536,0],4:[.088,.280,.010,.020,.602,0],5:[.065,.210,.009,.015,.701,0],6:[.045,.155,.008,.012,.780,0],7:[.013,.057,.009,.003,.919,0]},  # R11
 }
 
 PLAINS_PROFILES = {
     0.003: {1:[.987,.011,0,0,.002,0],2:[.987,.004,0,0,.009,0],3:[.987,0,0,0,.013,0],4:[.987,0,0,0,.013,0],5:[.987,0,0,0,.013,0],6:[.987,0,0,0,.013,0],7:[.987,0,0,0,.013,0]},
     0.10:  {1:[.808,.126,.004,.011,.051,0],2:[.837,.122,.007,.011,.023,0],3:[.846,.113,.008,.011,.022,0],4:[.859,.093,.009,.009,.030,0],5:[.877,.054,.010,.008,.051,0],6:[.917,.043,.009,.006,.025,0],7:[.949,.021,.007,.004,.019,0]},
     0.136: {1:[.657,.236,.012,.024,.071,0],2:[.693,.203,.015,.021,.069,0],3:[.850,.106,.010,.012,.022,0],4:[.896,.072,.008,.008,.016,0],5:[.978,.017,.001,.002,.002,0],6:[.988,.009,.001,.001,.001,0],7:[1,0,0,0,0,0]},
+    0.147: {1:[.737,.175,.005,.020,.063,0],2:[.760,.158,.006,.018,.058,0],3:[.795,.130,.006,.015,.054,0],4:[.830,.100,.006,.012,.052,0],5:[.875,.065,.005,.008,.047,0],6:[.920,.038,.004,.005,.033,0],7:[.955,.020,.003,.003,.019,0]},  # R9
+    0.188: {1:[.689,.223,.005,.022,.060,0],2:[.710,.200,.006,.020,.064,0],3:[.745,.170,.006,.017,.062,0],4:[.780,.140,.006,.014,.060,0],5:[.830,.095,.005,.010,.060,0],6:[.880,.055,.004,.006,.055,0],7:[.930,.030,.003,.004,.033,0]},  # R15
     0.21:  {1:[.701,.226,.008,.020,.045,0],2:[.700,.225,.013,.021,.041,0],3:[.710,.214,.015,.021,.040,0],4:[.719,.209,.018,.019,.035,0],5:[.735,.203,.021,.018,.023,0],6:[.809,.153,.021,.013,.004,0],7:[.874,.105,.018,.009,0,0]},
     0.265: {1:[.587,.300,.010,.034,.069,0],2:[.597,.281,.013,.035,.074,0],3:[.614,.261,.016,.035,.074,0],4:[.632,.240,.025,.034,.069,0],5:[.707,.197,.025,.029,.042,0],6:[.738,.175,.029,.024,.034,0],7:[.843,.108,.022,.012,.015,0]},
+    0.271: {1:[.429,.436,.013,.040,.083,0],2:[.470,.390,.012,.036,.092,0],3:[.530,.330,.011,.032,.097,0],4:[.590,.275,.010,.028,.097,0],5:[.670,.200,.008,.022,.100,0],6:[.750,.140,.006,.016,.088,0],7:[.850,.080,.004,.010,.056,0]},  # R14
+    0.296: {1:[.523,.391,.009,.025,.051,0],2:[.550,.360,.010,.024,.056,0],3:[.590,.320,.010,.022,.058,0],4:[.630,.275,.010,.020,.065,0],5:[.700,.210,.009,.016,.065,0],6:[.770,.155,.008,.012,.055,0],7:[.850,.095,.006,.008,.041,0]},  # R11
 }
 
 # Port survival relative to settlement survival (from R2-R7 data)
@@ -308,6 +317,21 @@ def detect_parameters(observations, grids):
 # ============================================================
 
 def bayesian_update(alpha, observations, grid, H=40, W=40):
+    # First pass: count faction sizes from owner_id
+    faction_counts = {}
+    for obs in observations:
+        for s in obs.get("settlements", []):
+            if s.get("alive", True) and "owner_id" in s:
+                oid = s["owner_id"]
+                faction_counts[oid] = faction_counts.get(oid, 0) + 1
+
+    # Determine large factions (above median)
+    if faction_counts:
+        counts = sorted(faction_counts.values())
+        median_size = counts[len(counts) // 2] if counts else 1
+    else:
+        median_size = 1
+
     for obs in observations:
         vp = obs["viewport"]
         og = obs["grid"]
@@ -323,20 +347,42 @@ def bayesian_update(alpha, observations, grid, H=40, W=40):
                 continue
             if grid[s["y"]][s["x"]] not in (1, 2):
                 continue
+
             if not s.get("alive", True):
-                # Fix 1: match 55:45 invariant (was 67:33)
                 alpha[s["y"]][s["x"]][0] += 2.75
                 alpha[s["y"]][s["x"]][4] += 2.25
-            elif s.get("population", 1) > 3 and s.get("food", 0.5) > 0.7:
-                # Fix 7A: Very strong → +4.0 (was +3.0)
-                idx = 2 if s.get("has_port") else 1
-                alpha[s["y"]][s["x"]][idx] += 4.0
-            elif s.get("population", 1) > 2 and s.get("food", 0.5) > 0.5:
-                idx = 2 if s.get("has_port") else 1
+                continue
+
+            # Compute settlement strength from ALL available stats
+            pop = s.get("population", 1)
+            food = s.get("food", 0.5)
+            wealth = s.get("wealth", 0.5)
+            defense = s.get("defense", 0.5)
+            oid = s.get("owner_id", -1)
+            faction_size = faction_counts.get(oid, 1)
+            is_large_faction = faction_size > median_size
+
+            # Combined strength signal
+            strength = 0
+            if pop > 3: strength += 1
+            if food > 0.7: strength += 1
+            if wealth > 0.7: strength += 1
+            if defense > 0.6: strength += 1
+            if is_large_faction: strength += 1
+
+            idx = 2 if s.get("has_port") else 1
+
+            if strength >= 4:  # Very strong (multiple strong signals)
+                alpha[s["y"]][s["x"]][idx] += 5.0
+            elif strength >= 3:  # Strong
+                alpha[s["y"]][s["x"]][idx] += 3.5
+            elif strength >= 2:  # Moderate
                 alpha[s["y"]][s["x"]][idx] += 2.0
-            elif s.get("food", 0.5) < 0.3 or s.get("population", 1) < 0.8:
+            elif food < 0.3 or pop < 0.8:  # Weak
                 alpha[s["y"]][s["x"]][0] += 2.0
                 alpha[s["y"]][s["x"]][4] += 1.0
+            else:  # Average
+                alpha[s["y"]][s["x"]][idx] += 1.0
 
     return np.maximum(alpha, 0.05)
 
@@ -436,8 +482,8 @@ def main():
     for si in range(seeds):
         all_features[si] = compute_features(detail["initial_states"][si]["grid"])
 
-    # 1. Baseline with medium estimates
-    print("\n--- 1/4: Baseline ---")
+    # 1. Submit baseline IMMEDIATELY (free insurance)
+    print("\n--- 1/3: Baseline (0 queries) ---")
     for si in range(seeds):
         state = detail["initial_states"][si]
         alpha = build_prior(state["grid"], state["settlements"], all_features[si], 0.136, 0.30)
@@ -445,47 +491,23 @@ def main():
         print(f"  S{si}: {r['status']}")
         time.sleep(0.6)
 
-    # 2. Detection queries (Fix 4: reduced from 10 to 6)
-    print("\n--- 2/4: Detection ---")
+    # 2. Use ALL queries for observation (no separate detection phase)
+    print(f"\n--- 2/3: Observe ({remaining}q) ---")
     plans = {si: plan_viewports(detail["initial_states"][si]["grid"],
              detail["initial_states"][si]["settlements"], 10, W, H) for si in range(seeds)}
     all_obs = {si: [] for si in range(seeds)}
-    detect_n = min(6, remaining)  # Fix 4: 6 instead of 10
-    q_used = 0
-    for si in range(seeds):
-        for vp in plans[si][:2]:
-            if q_used >= detect_n:
-                break
-            obs = simulate(session, round_id, si, vp)
-            all_obs[si].append(obs)
-            q_used += 1
-            time.sleep(0.23)
-
-    # 3. Detect both parameters
-    print("\n--- 3/4: Detect & resubmit ---")
     grids = {si: detail["initial_states"][si]["grid"] for si in range(seeds)}
-    exp_rate, surv_rate = detect_parameters(all_obs, grids)
 
-    for si in range(seeds):
-        state = detail["initial_states"][si]
-        alpha = build_prior(state["grid"], state["settlements"], all_features[si], exp_rate, surv_rate)
-        alpha = bayesian_update(alpha, all_obs[si], state["grid"], H, W)
-        r = submit(session, round_id, si, alpha_to_prediction(alpha, state["grid"]))
-        print(f"  S{si}: {r['status']}")
-        time.sleep(0.6)
-
-    # 4. Refinement (Fix 4: 44 queries instead of 40)
-    rem_q = remaining - q_used
-    print(f"\n--- 4/4: Refine ({rem_q}q) ---")
+    # Allocate all queries: coverage first, then repeats
     allocs = []
-    left = rem_q
+    left = remaining
     seed_order = sorted(range(seeds), key=lambda s: sum(v["score"] for v in plans[s]), reverse=True)
     for si in seed_order:
-        for vp in plans[si][2:6]:
+        for vp in plans[si][:6]:  # Up to 6 unique viewports per seed
             if left <= 0: break
             allocs.append({"seed": si, "vp": vp})
             left -= 1
-    # Repeats
+    # Repeats of top viewports
     all_vps = [(si, vp) for si in seed_order for vp in plans[si][:3]]
     all_vps.sort(key=lambda x: x[1]["score"], reverse=True)
     idx = 0
@@ -502,7 +524,8 @@ def main():
             print(f"  {i+1}/{len(allocs)}")
         time.sleep(0.23)
 
-    # Re-detect with all data
+    # 3. Detect from ALL observations (more data = better accuracy)
+    print("\n--- 3/3: Detect + update + final submit ---")
     exp2, surv2 = detect_parameters(all_obs, grids)
 
     # Fix 5: Recompute dist_sett from observed NEW settlements
