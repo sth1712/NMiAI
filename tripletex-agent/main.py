@@ -291,7 +291,7 @@ For "innlogget bruker" / "current user" / "logged in user": use employee_id from
 
 ### POST /travelExpense/cost
 Required: travelExpense.id, costCategory.id, paymentType.id, date, amountCurrencyIncVat, currency.id
-NOTE: Do NOT include "description" field — it does NOT exist on travelExpense/cost! Use "comment" instead if you need to add text.
+NOTE: Do NOT include "description" or "comment" fields — they do NOT exist on travelExpense/cost!
 paymentType: use travel_payment_type_id from ENVIRONMENT
 costCategory: use cost_cat_*_id from ENVIRONMENT (e.g. cost_cat_fly_id for flights, cost_cat_taxi_id for taxi)
 CRITICAL: costCategory IDs are DIFFERENT per sandbox — NEVER hardcode them! Use the IDs from ENVIRONMENT section.
