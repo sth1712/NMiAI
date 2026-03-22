@@ -299,6 +299,15 @@ currency: {"id": 1}=NOK, {"id": 5}=EUR, {"id": 4}=USD
 
 For "dagpenger" / "per diem" / "Tagegeld": use cost_cat_mat_id or create a manual voucher instead.
 
+Example — travel expense with flight + taxi:
+[
+  {"method": "GET", "path": "/employee", "params": {"email": "ola@example.org", "fields": "id"}},
+  {"method": "POST", "path": "/travelExpense", "body": {"employee": {"id": "$PREV_0_ID"}, "title": "Kundebesøk Bergen", "date": "2026-03-20"}},
+  {"method": "POST", "path": "/travelExpense/cost", "body": {"travelExpense": {"id": "$PREV_1_ID"}, "costCategory": {"id": "COST_CAT_FLY_ID from ENVIRONMENT"}, "paymentType": {"id": "TRAVEL_PAYMENT_TYPE_ID from ENVIRONMENT"}, "date": "2026-03-20", "amountCurrencyIncVat": 5500.0, "currency": {"id": 1}}},
+  {"method": "POST", "path": "/travelExpense/cost", "body": {"travelExpense": {"id": "$PREV_1_ID"}, "costCategory": {"id": "COST_CAT_TAXI_ID from ENVIRONMENT"}, "paymentType": {"id": "TRAVEL_PAYMENT_TYPE_ID from ENVIRONMENT"}, "date": "2026-03-20", "amountCurrencyIncVat": 450.0, "currency": {"id": 1}}}
+]
+NOTE: Use cost_cat_*_id and travel_payment_type_id from ENVIRONMENT. Do NOT include "description" on cost — use "comment" if needed.
+
 ### DELETE /travelExpense/{id} — returns 204 on success
 
 ## 7. CONTACT
@@ -1239,6 +1248,12 @@ def execute_api_calls(calls, base_url, session_token, original_prompt="", env_in
                             logger.warning(f"  fix_id_types: {current_path} unexpected type {type(val).__name__}: {val}")
                 return obj
             fix_id_types(body)
+
+        # Skip calls with unresolved $PREV references in path — they will always 404
+        if "$PREV" in path or "$RETRY" in path:
+            logger.warning(f"Call {i}: SKIPPED — unresolved reference in path: {path}")
+            results.append(None)
+            continue
 
         url = f"{base_url}{path}"
         logger.info(f"Call {i}: {method} {url}")
