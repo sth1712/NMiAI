@@ -1599,7 +1599,7 @@ async def solve(request: Request):
         acc_resp = http_requests.get(
             f"{base_url}/ledger/account",
             auth=auth,
-            params={"numberFrom": "1920", "numberTo": "1920", "fields": "*"},
+            params={"numberFrom": "1920", "numberTo": "1920", "fields": "id,number,bankAccountNumber,version,isInvoiceAccount,isBankAccount"},
             timeout=10
         )
         if acc_resp.status_code == 200 and acc_resp.json().get("values"):
@@ -1608,15 +1608,6 @@ async def solve(request: Request):
             acc["bankAccountNumber"] = "15030100007"
             bank_resp = http_requests.put(f"{base_url}/ledger/account/{acc['id']}", auth=auth, json=acc, timeout=10)
             logger.info(f"Bank account on ledger: {bank_resp.status_code}")
-            # Also ensure the account is marked as invoice account
-            try:
-                acc_check = http_requests.get(f"{base_url}/ledger/account", auth=auth,
-                    params={"numberFrom": "1920", "numberTo": "1920", "fields": "id,bankAccountNumber,isInvoiceAccount,isBankAccount"}, timeout=5)
-                if acc_check.status_code == 200 and acc_check.json().get("values"):
-                    check = acc_check.json()["values"][0]
-                    logger.info(f"Bank verify: number={check.get('bankAccountNumber')}, invoice={check.get('isInvoiceAccount')}, bank={check.get('isBankAccount')}")
-            except Exception:
-                pass
             env_info["bank_configured"] = True
 
         # 4. Get invoice payment types
