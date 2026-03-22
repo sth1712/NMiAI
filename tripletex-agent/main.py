@@ -462,13 +462,34 @@ Optional: employee.id
 ### POST /employee/hourlyCostAndRate
 For setting hourly cost and rate for an employee.
 
-## 21. MULTI-CURRENCY
+## 21. RECEIPT/EXPENSE WITH DEPARTMENT (kvittering/utlegg)
+
+When a task says "register expense from this receipt" or "post expense to department X":
+1. Read the attached PDF/image to extract: product name, amount, VAT
+2. POST /travelExpense with employee_id from ENVIRONMENT and the department
+3. POST /travelExpense/cost with the correct costCategory and amount
+OR use POST /ledger/voucher with the expense account and department
+
+For department-specific postings, include department on the voucher or travel expense.
+Look up the department first: GET /department?query=X&fields=id,name
+
+## 22. MULTI-CURRENCY + EXCHANGE RATE DIFFERENCES (disagio/agio)
 
 When a task involves foreign currency:
 - GET /currency to find currency ID (NOK=1, SEK=2, DKK=3, USD=4, EUR=5, GBP=6)
 - Use currency.id in product, invoice, or voucher postings
 - GET /currency/{fromCurrencyID}/exchangeRate for exchange rates
-Example: For a EUR invoice, use currency: {"id": 5} in the order/product.
+
+For EXCHANGE RATE DIFFERENCES (disagio/agio):
+When a customer pays in a different currency and the rate has changed:
+1. Calculate the NOK difference: (invoice amount × original rate) - (invoice amount × payment rate)
+2. If payment rate < invoice rate: loss = "disagio" → debit account 8160 (Valutakurstap/Disagio)
+3. If payment rate > invoice rate: gain = "agio" → credit account 8060 (Valutakursgevinst/Agio)
+4. Register payment on the invoice: PUT /invoice/{id}/:payment
+5. Register the exchange rate difference as a voucher:
+   - Disagio (loss): debit 8160, credit 1500 (kundefordringer)
+   - Agio (gain): debit 1500 (kundefordringer), credit 8060
+Look up accounts 8160 and 8060 with GET /ledger/account if not in ENVIRONMENT.
 
 ## 22. BANK RECONCILIATION (bankavstemming)
 
@@ -485,7 +506,23 @@ CRITICAL for matching payments to invoices:
 - For partial payments: paidAmount can be less than invoice amount
 - For supplier payments: use POST /ledger/voucher (debit 2400, credit 1920)
 
-## 23. YEAR-END / PERIOD CLOSING (årsoppgjør)
+## 23. PDF SUPPLIER INVOICE (leverandørfaktura fra PDF)
+
+When a task says "register the supplier invoice from the attached PDF":
+1. Read the PDF to extract: supplier name, org number, invoice number, amount, VAT, expense account
+2. GET /supplier by organizationNumber or name — create if not found
+3. POST /ledger/voucher with voucherType leverandørfaktura + supplier.id on EVERY posting
+Same flow as regular supplier invoice, but data comes from the PDF attachment.
+
+## 24. MONTH-END CLOSING (månedsavslutning)
+
+For month-end tasks (periodisering + avskrivning + lønnsavsetning):
+1. Periodisering: POST /ledger/voucher — debit kostnadskonto, credit 1700 (forskuddsbetalt)
+2. Avskrivning: POST /ledger/voucher — debit 6010/6030, credit 1200/1209 (DIFFERENT accounts!)
+3. Lønnsavsetning: POST /ledger/voucher — debit 5000, credit 2900 (påløpt lønn)
+Look up accounts 2900 and 6030 with GET /ledger/account if not in ENVIRONMENT.
+
+## 25. YEAR-END / PERIOD CLOSING (årsoppgjør)
 
 For year-end tasks (avskrivning, periodisering, skatteavsetning):
 1. Look up EACH account separately with GET /ledger/account?numberFrom=X&numberTo=X
