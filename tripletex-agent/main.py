@@ -472,15 +472,18 @@ Example: For a EUR invoice, use currency: {"id": 5} in the order/product.
 
 ## 22. BANK RECONCILIATION (bankavstemming)
 
-For bank reconciliation tasks:
-1. Compare bank balance vs book balance (GET /balanceSheet or GET /ledger/posting)
-2. Register any differences as vouchers (bankgebyr, uregistrerte innbetalinger, etc.)
-3. Each difference = one POST /ledger/voucher with correct accounts
+For bank reconciliation tasks with CSV:
+1. Read the CSV file to identify ALL transactions (incoming and outgoing payments)
+2. For each INCOMING payment: find the matching customer invoice with GET /invoice, then register payment with PUT /invoice/{id}/:payment
+3. For each OUTGOING payment (supplier): register as voucher (debit 2400 leverandørgjeld, credit 1920 bank)
+4. For unmatched transactions: register as voucher with appropriate accounts
 
-If the task mentions a CSV/bank statement file:
-- The file is attached as base64 — read it to identify transactions
-- Register each unmatched transaction as a voucher
-- Use account 1920 (bank) for all bank-side entries
+CRITICAL for matching payments to invoices:
+- GET /invoice with invoiceDateFrom=2020-01-01&invoiceDateTo=2030-12-31 to find ALL invoices
+- Match by customer name or amount from the CSV
+- Use PUT /invoice/{id}/:payment with the correct paidAmount
+- For partial payments: paidAmount can be less than invoice amount
+- For supplier payments: use POST /ledger/voucher (debit 2400, credit 1920)
 
 ## 23. YEAR-END / PERIOD CLOSING (årsoppgjør)
 
@@ -691,6 +694,17 @@ Prompt: "Opprett prosjekt Omega med ansatt Kari som prosjektleder"
   {"method": "POST", "path": "/project", "body": {"name": "Omega", "number": "1", "startDate": "2026-03-20", "projectManager": {"id": "$PREV_0_ID"}}}
 ]
 NOTE: 4 calls instead of 6! DEPARTMENT_ID and COMPANY_ID from ENVIRONMENT.
+
+### Full project cycle (Tier 3 — high value!)
+For complex project tasks that require: create project → register hours → register supplier cost → create project invoice:
+1. GET /customer by organizationNumber to find customer
+2. POST /employee for each team member (or GET if they exist)
+3. POST /employee/entitlement (45 then 10) for project manager
+4. POST /project with customer.id and projectManager.id
+5. POST /timesheet/entry for each employee's hours (use activity from ENVIRONMENT)
+6. For supplier costs: POST /ledger/voucher with project.id on postings
+7. POST /order with project.id → POST /order/orderline → PUT /order/:invoice
+NOTE: Use GET to find existing entities FIRST. Search by organizationNumber or name.
 
 ## Tier 2: Supplier invoice (uses ENVIRONMENT account IDs)
 ### Register supplier invoice (as voucher — /supplierInvoice returns 500!)
