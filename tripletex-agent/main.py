@@ -364,7 +364,8 @@ Example: {"displayName": "Nord"}
 ### GET /ledger/accountingDimensionName/search — find existing dimensions
 ### GET /ledger/accountingDimensionValue/search — find existing dimension values
 
-After creating dimensions, you can link them to voucher postings.
+CRITICAL: There is NO API field to link dimensions to voucher postings! Do NOT use "accountingDimensionValues", "customDimensionValues", or similar fields on postings — they do NOT exist and will cause 422 errors.
+The correct approach: 1) Create dimension name 2) Create dimension values 3) Create the voucher separately (mention the dimension in the posting description text only).
 ALWAYS also create the voucher/bilag part of the task — partial credit is better than 0.
 
 Common accounts: 1920=Bankinnskudd, 2400=Leverandørgjeld, 2700=Utg MVA høy, 2710=Inng MVA høy, 3000=Salgsinntekt, 6800=Kontorrekvisita, 6900=Telefon, 7100=Kontortjenester
