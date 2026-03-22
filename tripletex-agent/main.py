@@ -1607,9 +1607,18 @@ async def solve(request: Request):
             # ALWAYS set bank account number — some sandboxes have invalid/empty values
             acc["bankAccountNumber"] = "15030100007"
             bank_resp = http_requests.put(f"{base_url}/ledger/account/{acc['id']}", auth=auth, json=acc, timeout=10)
-            logger.info(f"Bank account configured: {bank_resp.status_code}")
-            if bank_resp.status_code >= 400:
-                logger.warning(f"Bank account setup FAILED: {bank_resp.text[:500]}")
+            logger.info(f"Bank account on ledger: {bank_resp.status_code}")
+            # ALSO set on company level
+            try:
+                comp_resp = http_requests.get(f"{base_url}/company/settings/altinn", auth=auth, params={"fields": "id,organizationNumber"}, timeout=10)
+                if comp_resp.status_code == 200:
+                    settings = comp_resp.json().get("value", {})
+                    if settings.get("id"):
+                        settings["bankAccountNumber"] = "15030100007"
+                        http_requests.put(f"{base_url}/company/settings/altinn", auth=auth, json=settings, timeout=10)
+                        logger.info("Bank account on company: set")
+            except Exception:
+                pass
             env_info["bank_configured"] = True
 
         # 4. Get invoice payment types
