@@ -271,9 +271,10 @@ Creates a credit note for the FULL amount. No partial credit notes via API.
 CRITICAL: The date MUST be ON or AFTER the original invoice date! Use today's date to be safe. Never use a date before the invoice was created.
 NOTE: Use PUT (not POST). Original invoice gets isCredited: true.
 
-### Payment types
-- id=33233579: Kontant (cash, debit account 1900)
-- id=33233580: Betalt til bank (bank, debit account 1920)
+### Payment types — use IDs from ENVIRONMENT!
+- invoice_payment_type_cash_id from ENVIRONMENT (Kontant)
+- invoice_payment_type_bank_id from ENVIRONMENT (Bank)
+NEVER hardcode payment type IDs — they differ per sandbox!
 
 ### DELETE operations in invoice flow
 - DELETE /order/{id} → 204 (only unfactured orders)
@@ -1303,8 +1304,16 @@ def execute_api_calls(calls, base_url, session_token, original_prompt="", env_in
                 logger.warning(f"  → Error: {error_text[:500]}")
                 results.append({"error": resp.status_code, "detail": error_text})
 
-                # Try to fix with Gemini on validation errors
-                if resp.status_code in (400, 422):
+                # Only retry on SPECIFIC fixable errors — retries cost write calls!
+                # Skip retry for: bankkontonummer (unfixable), type errors (unfixable), 500 (server error)
+                is_retryable = (
+                    resp.status_code in (400, 422) and
+                    "bankkontonummer" not in error_text.lower() and
+                    "korrekt type" not in error_text.lower() and
+                    "already exists" not in error_text.lower() and
+                    method != "GET"  # Never retry GETs
+                )
+                if is_retryable:
                     fix = try_fix_call(
                         call, error_text, base_url, auth, results,
                         all_calls=calls, call_index=i,
@@ -1664,78 +1673,24 @@ async def solve(request: Request):
         )
         if acc_resp.status_code == 200 and acc_resp.json().get("values"):
             acc = acc_resp.json()["values"][0]
-            acc["bankAccountNumber"] = "15030100007"
-            acc["isBankAccount"] = True
-            acc["isInvoiceAccount"] = True
-            bank_resp = http_requests.put(f"{base_url}/ledger/account/{acc['id']}", auth=auth, json=acc, timeout=10)
-            logger.info(f"Bank account on ledger: {bank_resp.status_code}")
+            # Only PUT if not already configured — PUTs count as WRITE calls against efficiency!
+            needs_update = (
+                acc.get("bankAccountNumber") != "15030100007" or
+                not acc.get("isBankAccount") or
+                not acc.get("isInvoiceAccount")
+            )
+            if needs_update:
+                acc["bankAccountNumber"] = "15030100007"
+                acc["isBankAccount"] = True
+                acc["isInvoiceAccount"] = True
+                bank_resp = http_requests.put(f"{base_url}/ledger/account/{acc['id']}", auth=auth, json=acc, timeout=10)
+                logger.info(f"Bank account on ledger: {bank_resp.status_code}")
+            else:
+                logger.info("Bank account already configured — skipping PUT")
             env_info["bank_configured"] = True
 
-        # 3b. Set bank account on COMPANY level (required for invoice creation!)
-        # Try multiple approaches since different sandbox versions accept different methods
-        if env_info.get("company_id"):
-            try:
-                comp_resp = http_requests.get(
-                    f"{base_url}/company/{env_info['company_id']}",
-                    auth=auth,
-                    params={"fields": "id,name,organizationNumber,bankAccountNumber,version"},
-                    timeout=10
-                )
-                if comp_resp.status_code == 200:
-                    comp_data = comp_resp.json().get("value", {})
-                    if not comp_data.get("bankAccountNumber"):
-                        # Approach 1: PUT /company with minimal body
-                        put_body = {
-                            "id": comp_data.get("id"),
-                            "name": comp_data.get("name"),
-                            "bankAccountNumber": "15030100007",
-                            "version": comp_data.get("version"),
-                        }
-                        comp_put = http_requests.put(
-                            f"{base_url}/company/{env_info['company_id']}",
-                            auth=auth,
-                            json=put_body,
-                            timeout=10
-                        )
-                        logger.info(f"Company bank (approach 1): {comp_put.status_code}")
-                        if comp_put.status_code >= 400:
-                            # Approach 2: GET with fields=* and PUT full object
-                            comp_full = http_requests.get(
-                                f"{base_url}/company/{env_info['company_id']}",
-                                auth=auth,
-                                params={"fields": "*"},
-                                timeout=10
-                            )
-                            if comp_full.status_code == 200:
-                                full_data = comp_full.json().get("value", {})
-                                full_data["bankAccountNumber"] = "15030100007"
-                                # Remove potentially read-only fields
-                                for ro_field in ["changes", "url", "displayName"]:
-                                    full_data.pop(ro_field, None)
-                                comp_put2 = http_requests.put(
-                                    f"{base_url}/company/{env_info['company_id']}",
-                                    auth=auth,
-                                    json=full_data,
-                                    timeout=10
-                                )
-                                logger.info(f"Company bank (approach 2): {comp_put2.status_code}")
-                                if comp_put2.status_code >= 400:
-                                    # Approach 3: Try /company/altinn endpoint
-                                    try:
-                                        altinn_resp = http_requests.put(
-                                            f"{base_url}/company/settings/altinn",
-                                            auth=auth,
-                                            json={"bankAccountNumber": "15030100007"},
-                                            timeout=10
-                                        )
-                                        logger.info(f"Company bank (approach 3 altinn): {altinn_resp.status_code}")
-                                    except Exception:
-                                        pass
-                                    logger.warning(f"Company bank error: {comp_put2.text[:300]}")
-                    else:
-                        logger.info(f"Company already has bank: {comp_data.get('bankAccountNumber')}")
-            except Exception as e:
-                logger.warning(f"Company bank setup failed: {e}")
+        # 3b. Company bank — REMOVED. PUTs always returned 400 and counted as WRITE calls
+        # against efficiency score. The ledger account setup (3a) is sufficient.
 
         # 4. Get invoice payment types
         pt_resp = http_requests.get(f"{base_url}/invoice/paymentType", auth=auth, params={"fields": "id,description"}, timeout=10)
