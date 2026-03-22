@@ -1256,6 +1256,26 @@ def execute_api_calls(calls, base_url, session_token, original_prompt=""):
                             posting["account"]["id"] = new_id
                             logger.info(f"  Fixed posting {p_idx}: account {old_id} → {new_id}")
 
+        # VALIDATION: Ensure nested ID fields are integers, not strings
+        # Fixes "Verdien er ikke av korrekt type" errors on supplier.id, product.id, etc.
+        if method in ("POST", "PUT") and body:
+            def fix_id_types(obj):
+                if isinstance(obj, dict):
+                    for key, val in obj.items():
+                        if isinstance(val, dict):
+                            fix_id_types(val)
+                        elif isinstance(val, list):
+                            for item in val:
+                                if isinstance(item, dict):
+                                    fix_id_types(item)
+                        elif key == "id" and isinstance(val, str):
+                            try:
+                                obj[key] = int(val)
+                            except (ValueError, TypeError):
+                                pass
+                return obj
+            fix_id_types(body)
+
         url = f"{base_url}{path}"
         logger.info(f"Call {i}: {method} {url}")
         if params:
@@ -1471,6 +1491,25 @@ IMPORTANT: Return ONLY a valid JSON array. No markdown, no explanation, no comme
                             merged[k] = v
                         body = merged
 
+            # Fix ID types in retry calls too (string → int)
+            if method in ("POST", "PUT") and body:
+                def fix_id_types_retry(obj):
+                    if isinstance(obj, dict):
+                        for key, val in obj.items():
+                            if isinstance(val, dict):
+                                fix_id_types_retry(val)
+                            elif isinstance(val, list):
+                                for item in val:
+                                    if isinstance(item, dict):
+                                        fix_id_types_retry(item)
+                            elif key == "id" and isinstance(val, str):
+                                try:
+                                    obj[key] = int(val)
+                                except (ValueError, TypeError):
+                                    pass
+                    return obj
+                fix_id_types_retry(body)
+
             url = f"{base_url}{path}"
             logger.info(f"  → Retry {fi}: {method} {url}")
             if body:
@@ -1596,6 +1635,7 @@ async def solve(request: Request):
             env_info["department_name"] = dept_resp.json()["values"][0].get("name", "")
 
         # 3. Ensure bank account is configured (required for invoicing)
+        # 3a. Set bank account on LEDGER account 1920
         acc_resp = http_requests.get(
             f"{base_url}/ledger/account",
             auth=auth,
@@ -1604,11 +1644,35 @@ async def solve(request: Request):
         )
         if acc_resp.status_code == 200 and acc_resp.json().get("values"):
             acc = acc_resp.json()["values"][0]
-            # ALWAYS set bank account number — some sandboxes have invalid/empty values
             acc["bankAccountNumber"] = "15030100007"
             bank_resp = http_requests.put(f"{base_url}/ledger/account/{acc['id']}", auth=auth, json=acc, timeout=10)
             logger.info(f"Bank account on ledger: {bank_resp.status_code}")
             env_info["bank_configured"] = True
+
+        # 3b. Set bank account on COMPANY level (required for invoice creation!)
+        if env_info.get("company_id"):
+            try:
+                comp_resp = http_requests.get(
+                    f"{base_url}/company/{env_info['company_id']}",
+                    auth=auth,
+                    params={"fields": "*"},
+                    timeout=10
+                )
+                if comp_resp.status_code == 200:
+                    comp_data = comp_resp.json().get("value", {})
+                    if not comp_data.get("bankAccountNumber"):
+                        comp_data["bankAccountNumber"] = "15030100007"
+                        comp_put = http_requests.put(
+                            f"{base_url}/company/{env_info['company_id']}",
+                            auth=auth,
+                            json=comp_data,
+                            timeout=10
+                        )
+                        logger.info(f"Company bank account: {comp_put.status_code}")
+                    else:
+                        logger.info(f"Company already has bank account: {comp_data.get('bankAccountNumber')}")
+            except Exception as e:
+                logger.warning(f"Company bank account setup failed: {e}")
 
         # 4. Get invoice payment types
         pt_resp = http_requests.get(f"{base_url}/invoice/paymentType", auth=auth, params={"fields": "id,description"}, timeout=10)
@@ -1775,6 +1839,36 @@ async def solve(request: Request):
                         env_info["account_2050_id"] = acc["id"]
                     elif acc_num == "8800":
                         env_info["account_8800_id"] = acc["id"]
+                    elif acc_num == "2900":
+                        env_info["account_2900_id"] = acc["id"]
+                    elif acc_num == "2920":
+                        env_info["account_2920_id"] = acc["id"]
+                    elif acc_num == "1209":
+                        env_info["account_1209_id"] = acc["id"]
+                    elif acc_num == "1210":
+                        env_info["account_1210_id"] = acc["id"]
+                    elif acc_num == "1230":
+                        env_info["account_1230_id"] = acc["id"]
+                    elif acc_num == "1240":
+                        env_info["account_1240_id"] = acc["id"]
+                    elif acc_num == "1250":
+                        env_info["account_1250_id"] = acc["id"]
+                    elif acc_num == "6020":
+                        env_info["account_6020_id"] = acc["id"]
+                    elif acc_num == "6030":
+                        env_info["account_6030_id"] = acc["id"]
+                    elif acc_num == "6340":
+                        env_info["account_6340_id"] = acc["id"]
+                    elif acc_num == "6390":
+                        env_info["account_6390_id"] = acc["id"]
+                    elif acc_num == "6590":
+                        env_info["account_6590_id"] = acc["id"]
+                    elif acc_num == "7000":
+                        env_info["account_7000_id"] = acc["id"]
+                    elif acc_num == "7300":
+                        env_info["account_7300_id"] = acc["id"]
+                    elif acc_num == "8700":
+                        env_info["account_8700_id"] = acc["id"]
         except Exception:
             pass
 
@@ -1840,6 +1934,20 @@ Travel expense cost categories (USE THESE IDs, not hardcoded ones!):
 - account_2910_id (Gjeld til ansatte): {env_info.get('account_2910_id', 'unknown')}
 - account_2050_id (Egenkapital): {env_info.get('account_2050_id', 'unknown')}
 - account_8800_id (Årsresultat): {env_info.get('account_8800_id', 'unknown')}
+- account_2900_id (Påløpt lønn): {env_info.get('account_2900_id', 'unknown')}
+- account_2920_id (Betalbar skatt): {env_info.get('account_2920_id', 'unknown')}
+- account_1209_id (Akkumulerte avskrivninger): {env_info.get('account_1209_id', 'unknown')}
+- account_1210_id (IT-utstyr): {env_info.get('account_1210_id', 'unknown')}
+- account_1230_id (Kjøretøy): {env_info.get('account_1230_id', 'unknown')}
+- account_1240_id (Inventar): {env_info.get('account_1240_id', 'unknown')}
+- account_1250_id (Programvare): {env_info.get('account_1250_id', 'unknown')}
+- account_6020_id (Avskrivning inventar): {env_info.get('account_6020_id', 'unknown')}
+- account_6340_id (Lys/varme): {env_info.get('account_6340_id', 'unknown')}
+- account_6390_id (Annen leiekostnad): {env_info.get('account_6390_id', 'unknown')}
+- account_6590_id (Rep/vedlikehold): {env_info.get('account_6590_id', 'unknown')}
+- account_7000_id (Driftskostnader): {env_info.get('account_7000_id', 'unknown')}
+- account_7300_id (Salgs-/reklamekostnad): {env_info.get('account_7300_id', 'unknown')}
+- account_8700_id (Skattekostnad): {env_info.get('account_8700_id', 'unknown')}
 
 IMPORTANT: Each account ID above is UNIQUE. Use the CORRECT account for each posting. For supplier invoices, the expense account depends on what the prompt says (e.g. "kontorrekvisita" = account_6800_id, "kontortjenester" = account_6500_id or account_7100_id).
 
