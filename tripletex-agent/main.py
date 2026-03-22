@@ -243,6 +243,7 @@ Creating an invoice requires this exact sequence:
 
 CRITICAL: Invoicing uses PUT /order/{id}/:invoice — NOT POST /invoice!
 CRITICAL: ALWAYS set invoiceDueDate = invoiceDate + 30 days. If prompt says "send"/"sende"/"enviar"/"envoyer", set sendToCustomer=true!
+CRITICAL: GET /invoice fields — use invoiceNumber (NOT number!), amount, amountOutstanding, customer(id,name). "number" does NOT exist on InvoiceDTO!
 CRITICAL: GET /invoice REQUIRES invoiceDateFrom and invoiceDateTo params! Always include: invoiceDateFrom=2020-01-01, invoiceDateTo=2030-12-31
 
 ### POST /order
@@ -267,6 +268,7 @@ NOTE: paidAmount — NOT amount! Supports partial payments (call multiple times 
 PUT /invoice/{invoiceId}/:createCreditNote
 Query params: date (YYYY-MM-DD), comment (optional), sendToCustomer=false
 Creates a credit note for the FULL amount. No partial credit notes via API.
+CRITICAL: The date MUST be ON or AFTER the original invoice date! Use today's date to be safe. Never use a date before the invoice was created.
 NOTE: Use PUT (not POST). Original invoice gets isCredited: true.
 
 ### Payment types
@@ -289,6 +291,7 @@ For "innlogget bruker" / "current user" / "logged in user": use employee_id from
 
 ### POST /travelExpense/cost
 Required: travelExpense.id, costCategory.id, paymentType.id, date, amountCurrencyIncVat, currency.id
+NOTE: Do NOT include "description" field — it does NOT exist on travelExpense/cost! Use "comment" instead if you need to add text.
 paymentType: use travel_payment_type_id from ENVIRONMENT
 costCategory: use cost_cat_*_id from ENVIRONMENT (e.g. cost_cat_fly_id for flights, cost_cat_taxi_id for taxi)
 CRITICAL: costCategory IDs are DIFFERENT per sandbox — NEVER hardcode them! Use the IDs from ENVIRONMENT section.
@@ -1607,11 +1610,29 @@ async def solve(request: Request):
             env_info["company_id"] = whoami.get("companyId")
             env_info["employee_id"] = whoami.get("employeeId")
 
-        # 2. Get first department ID
-        dept_resp = http_requests.get(f"{base_url}/department", auth=auth, params={"count": 1, "fields": "id,name"}, timeout=10)
+        # 2. Get first ACTIVE department ID (inactive departments cause 422!)
+        dept_resp = http_requests.get(f"{base_url}/department", auth=auth, params={"count": 10, "fields": "id,name,isInactive"}, timeout=10)
         if dept_resp.status_code == 200 and dept_resp.json().get("values"):
-            env_info["department_id"] = dept_resp.json()["values"][0]["id"]
-            env_info["department_name"] = dept_resp.json()["values"][0].get("name", "")
+            # Find first active department
+            active_dept = None
+            for dept in dept_resp.json()["values"]:
+                if not dept.get("isInactive", False):
+                    active_dept = dept
+                    break
+            if active_dept:
+                env_info["department_id"] = active_dept["id"]
+                env_info["department_name"] = active_dept.get("name", "")
+            else:
+                # All departments are inactive — create a new one
+                new_dept = http_requests.post(f"{base_url}/department", auth=auth, json={"name": "Avdeling"}, timeout=10)
+                if new_dept.status_code == 201:
+                    env_info["department_id"] = new_dept.json().get("value", {}).get("id")
+                    env_info["department_name"] = "Avdeling"
+                    logger.info(f"Created new department (all were inactive): {env_info.get('department_id')}")
+                else:
+                    # Fallback to first department even if inactive
+                    env_info["department_id"] = dept_resp.json()["values"][0]["id"]
+                    env_info["department_name"] = dept_resp.json()["values"][0].get("name", "")
 
         # 3. Ensure bank account is configured (required for invoicing)
         # 3a. Set bank account on LEDGER account 1920
