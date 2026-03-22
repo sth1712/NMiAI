@@ -78,10 +78,10 @@ Therefore:
 | Pattern | Example | API Flow |
 |---------|---------|----------|
 | Create single entity | "Create employee Ola" | POST /employee |
-| Create with linking | "Create invoice for customer" | GET /customer → POST /order → POST /invoice |
+| Create with linking | "Create invoice for customer" | GET /customer → POST /order → POST /order/orderline → PUT /order/:invoice |
 | Modify existing | "Add phone to contact" | GET /entity?fields=* → PUT /entity/{id} |
 | Delete/reverse | "Delete travel expense" | GET /entity → DELETE /entity/{id} |
-| Multi-step setup | "Register payment" | GET /customer → GET /product → POST /order → POST /invoice |
+| Multi-step setup | "Register payment" | GET /invoice → PUT /invoice/:payment |
 
 CRITICAL RULE: When the prompt references EXISTING entities (customer name, org number, product number, invoice, employee email), ALWAYS use GET to find them. The competition sandbox has pre-populated data specific to each task. These entities ALREADY EXIST — do NOT create them!
 CRITICAL: If POST /employee returns "email already exists" (422), the employee is ALREADY in the system. Use GET /employee?email=X to find them instead of creating.
@@ -143,9 +143,9 @@ userType rules:
 - "EXTENDED" — required for admin or project manager roles
 - "NO_ACCESS" — no login access
 
-Keyword → userType mapping:
-- "kontoadministrator" / "administrator" / "admin" → EXTENDED + entitlement 1
-- "prosjektleder" / "project manager" → EXTENDED + entitlements 45 then 10
+Keyword → userType mapping (ALL LANGUAGES!):
+- "kontoadministrator" / "administrator" / "admin" / "administrador" (ES/PT) / "administrateur" (FR) / "Administrator" (DE) → EXTENDED + entitlement 1
+- "prosjektleder" / "project manager" / "Projektmanager" (DE) / "jefe de proyecto" (ES) / "chef de projet" (FR) / "gerente de projeto" (PT) → EXTENDED + entitlements 45 then 10
 - No special role mentioned → STANDARD
 
 department.id: Use the department_id from ENVIRONMENT section (pre-fetched). Do NOT call GET /department.
@@ -1737,31 +1737,41 @@ async def solve(request: Request):
                     env_info["department_id"] = dept_resp.json()["values"][0]["id"]
                     env_info["department_name"] = dept_resp.json()["values"][0].get("name", "")
 
-        # 3. Ensure bank account is configured (required for invoicing)
-        # 3a. Set bank account on LEDGER account 1920
-        acc_resp = http_requests.get(
-            f"{base_url}/ledger/account",
-            auth=auth,
-            params={"numberFrom": "1920", "numberTo": "1920", "fields": "id,number,bankAccountNumber,version,isInvoiceAccount,isBankAccount"},
-            timeout=10
-        )
-        if acc_resp.status_code == 200 and acc_resp.json().get("values"):
-            acc = acc_resp.json()["values"][0]
-            # Only PUT if not already configured — PUTs count as WRITE calls against efficiency!
-            needs_update = (
-                acc.get("bankAccountNumber") != "15030100007" or
-                not acc.get("isBankAccount") or
-                not acc.get("isInvoiceAccount")
-            )
-            if needs_update:
-                acc["bankAccountNumber"] = "15030100007"
-                acc["isBankAccount"] = True
-                acc["isInvoiceAccount"] = True
-                bank_resp = http_requests.put(f"{base_url}/ledger/account/{acc['id']}", auth=auth, json=acc, timeout=10)
-                logger.info(f"Bank account on ledger: {bank_resp.status_code}")
-            else:
-                logger.info("Bank account already configured — skipping PUT")
+        # 3. Ensure bank account is configured (only for invoice-related tasks — saves 1 write on other tasks)
+        needs_bank = any(kw in prompt.lower() for kw in [
+            "faktura", "invoice", "rechnung", "factura", "fatura", "facture",
+            "betaling", "payment", "zahlung", "pago", "pagamento", "paiement",
+            "kreditnota", "credit note", "gutschrift", "avoir",
+            "ordre", "order", "bestilling", "bestellung", "commande",
+            "purring", "reminder", "mahnung",
+        ])
+        if not needs_bank:
             env_info["bank_configured"] = True
+            logger.info("Bank setup skipped — not an invoice task")
+        # 3a. Set bank account on LEDGER account 1920
+        if needs_bank:
+            acc_resp = http_requests.get(
+                f"{base_url}/ledger/account",
+                auth=auth,
+                params={"numberFrom": "1920", "numberTo": "1920", "fields": "id,number,bankAccountNumber,version,isInvoiceAccount,isBankAccount"},
+                timeout=10
+            )
+            if acc_resp.status_code == 200 and acc_resp.json().get("values"):
+                acc = acc_resp.json()["values"][0]
+                needs_update = (
+                    acc.get("bankAccountNumber") != "15030100007" or
+                    not acc.get("isBankAccount") or
+                    not acc.get("isInvoiceAccount")
+                )
+                if needs_update:
+                    acc["bankAccountNumber"] = "15030100007"
+                    acc["isBankAccount"] = True
+                    acc["isInvoiceAccount"] = True
+                    bank_resp = http_requests.put(f"{base_url}/ledger/account/{acc['id']}", auth=auth, json=acc, timeout=10)
+                    logger.info(f"Bank account on ledger: {bank_resp.status_code}")
+                else:
+                    logger.info("Bank account already configured — skipping PUT")
+                env_info["bank_configured"] = True
 
         # 3b. Company bank — REMOVED. PUTs always returned 400 and counted as WRITE calls
         # against efficiency score. The ledger account setup (3a) is sufficient.
