@@ -1649,6 +1649,8 @@ async def solve(request: Request):
         if acc_resp.status_code == 200 and acc_resp.json().get("values"):
             acc = acc_resp.json()["values"][0]
             acc["bankAccountNumber"] = "15030100007"
+            acc["isBankAccount"] = True
+            acc["isInvoiceAccount"] = True
             bank_resp = http_requests.put(f"{base_url}/ledger/account/{acc['id']}", auth=auth, json=acc, timeout=10)
             logger.info(f"Bank account on ledger: {bank_resp.status_code}")
             env_info["bank_configured"] = True
@@ -1702,6 +1704,17 @@ async def solve(request: Request):
                                 )
                                 logger.info(f"Company bank (approach 2): {comp_put2.status_code}")
                                 if comp_put2.status_code >= 400:
+                                    # Approach 3: Try /company/altinn endpoint
+                                    try:
+                                        altinn_resp = http_requests.put(
+                                            f"{base_url}/company/settings/altinn",
+                                            auth=auth,
+                                            json={"bankAccountNumber": "15030100007"},
+                                            timeout=10
+                                        )
+                                        logger.info(f"Company bank (approach 3 altinn): {altinn_resp.status_code}")
+                                    except Exception:
+                                        pass
                                     logger.warning(f"Company bank error: {comp_put2.text[:300]}")
                     else:
                         logger.info(f"Company already has bank: {comp_data.get('bankAccountNumber')}")
