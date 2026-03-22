@@ -1270,6 +1270,58 @@ def execute_api_calls(calls, base_url, session_token, original_prompt="", env_in
                 results.append(None)
                 continue
 
+        # POST-PROCESSING: Auto-fix voucher postings (row, currency, amounts)
+        if method == "POST" and "/ledger/voucher" in path and body.get("postings"):
+            for p_idx, posting in enumerate(body["postings"]):
+                if isinstance(posting, dict):
+                    if "row" not in posting:
+                        posting["row"] = p_idx + 1
+                    if "currency" not in posting:
+                        posting["currency"] = {"id": 1}
+                    # Ensure all amount fields are set and are numbers
+                    amt = posting.get("amount")
+                    if amt is not None:
+                        if isinstance(amt, str):
+                            try:
+                                amt = float(amt)
+                                posting["amount"] = amt
+                            except ValueError:
+                                pass
+                        for af in ["amountCurrency", "amountGross", "amountGrossCurrency"]:
+                            if af not in posting:
+                                posting[af] = amt
+
+        # POST-PROCESSING: Auto-add invoiceDueDate on PUT /:invoice
+        if method == "PUT" and "/:invoice" in path and params:
+            if "invoiceDueDate" not in params and "invoiceDate" in params:
+                try:
+                    from datetime import datetime, timedelta
+                    inv_date = datetime.strptime(str(params["invoiceDate"]), "%Y-%m-%d")
+                    params["invoiceDueDate"] = (inv_date + timedelta(days=30)).strftime("%Y-%m-%d")
+                except Exception:
+                    pass
+
+        # POST-PROCESSING: Fix string amounts to numbers in body
+        if method in ("POST", "PUT") and body:
+            def fix_amounts(obj):
+                if isinstance(obj, dict):
+                    for key, val in obj.items():
+                        if isinstance(val, dict):
+                            fix_amounts(val)
+                        elif isinstance(val, list):
+                            for item in val:
+                                if isinstance(item, dict):
+                                    fix_amounts(item)
+                        elif isinstance(val, str) and key in ("amount", "amountCurrency", "amountGross",
+                                "amountGrossCurrency", "amountCurrencyIncVat", "paidAmount",
+                                "unitPriceExcludingVatCurrency", "priceExcludingVatCurrency",
+                                "annualSalary", "hourlyWage", "percentageOfFullTimeEquivalent"):
+                            try:
+                                obj[key] = float(val)
+                            except ValueError:
+                                pass
+            fix_amounts(body)
+
         # Skip calls with unresolved $PREV references in path — they will always 404
         if "$PREV" in path or "$RETRY" in path:
             logger.warning(f"Call {i}: SKIPPED — unresolved reference in path: {path}")
