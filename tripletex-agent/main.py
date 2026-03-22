@@ -1210,6 +1210,12 @@ def execute_api_calls(calls, base_url, session_token, original_prompt="", env_in
                             p["supplier"] = {"id": found_supplier_id}
                     logger.info(f"  Added supplier.id={found_supplier_id} to {len(postings)} postings")
 
+        # VALIDATION: Auto-add dateOfBirth to employee POST/PUT if missing
+        if method in ("POST", "PUT") and "/employee" in path and "employment" not in path and "entitlement" not in path:
+            if isinstance(body, dict) and "firstName" in body and "dateOfBirth" not in body:
+                body["dateOfBirth"] = "1990-01-01"
+                logger.info("  Auto-added dateOfBirth=1990-01-01")
+
         # VALIDATION: Ensure nested ID fields are integers, not strings
         # Fixes "Verdien er ikke av korrekt type" errors on supplier.id, product.id, etc.
         if method in ("POST", "PUT") and body:
